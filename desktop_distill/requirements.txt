@@ -1,0 +1,6 @@
+torch>=2.3
+transformers>=4.44
+accelerate>=0.33
+peft>=0.12
+datasets>=2.20
+unsloth>=2025.10.1; platform_system != 'Darwin'
