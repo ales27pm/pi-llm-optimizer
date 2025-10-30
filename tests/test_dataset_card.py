@@ -49,7 +49,7 @@ def test_compute_register_distribution_requires_multiple_categories():
         compute_register_distribution([{"register": "Only"}])
 
 
-def test_build_dataset_card_produces_expected_payload(tmp_path: Path) -> None:
+def test_build_dataset_card_produces_expected_payload() -> None:
     records = _sample_records()
     card = build_dataset_card(
         records,
