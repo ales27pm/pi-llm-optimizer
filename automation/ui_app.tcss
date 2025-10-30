@@ -1,0 +1,56 @@
+Screen {
+  layout: vertical;
+}
+
+#layout {
+  height: 1fr;
+}
+
+#sidebar {
+  width: 48;
+  padding: 1 2;
+  border: round $primary 60%;
+  background: $surface;
+}
+
+#sidebar-title {
+  margin-bottom: 1;
+  text-style: bold;
+}
+
+#nav-tabs {
+  margin-bottom: 1;
+}
+
+#panel-holder {
+  height: 1fr;
+  overflow: auto;
+}
+
+.panel-body {
+  padding: 1 0 0 0;
+  gutter: 1;
+}
+
+.panel-title {
+  text-style: bold;
+  margin-bottom: 1;
+}
+
+.panel-description {
+  color: $text-muted;
+  margin-bottom: 1;
+}
+
+.panel-body Input,
+.panel-body Checkbox,
+.panel-body Button {
+  margin-bottom: 1;
+}
+
+#log {
+  border: round $accent 40%;
+  padding: 1;
+  margin: 1 0 1 1;
+}
+
