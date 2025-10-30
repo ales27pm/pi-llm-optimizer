@@ -12,29 +12,36 @@ using [llama.cpp](https://github.com/ggml-org/llama.cpp).
 ## Features
 
 * **Knowledge Distillation** – Use a powerful teacher model to generate
-  labelled examples from a lightweight dataset.  The `desktop_distill/teacher_label.py`
-  script will populate the `assistant` field of a JSONL file using your
-  teacher model (e.g. Dolphin) and optional JSON schemas.
+  labelled examples from a lightweight dataset.  The
+  `desktop_distill/teacher_label.py` script concatenates `system_hint`,
+  `user` and optional JSON schema instructions, supports batched
+  generation, and can skip previously answered prompts so incremental
+  labelling runs are fast.
 * **Student Training** – Fine tune a small base model (e.g. TinyLlama
-  1.1 B or Qwen 2.5 B) with LoRA or DoRA adapters, gradient checkpointing and
-  optional QLoRA (k‑bit) training.  The script
-  `desktop_distill/train_student.py` supports mixed precision and merging
-  adapters back into the base model.
+  1.1 B or Qwen 2.5 B) with LoRA or DoRA adapters, gradient checkpointing,
+  mixed precision and optional QLoRA (k‑bit) training.  The
+  `desktop_distill/train_student.py` script validates dataset integrity,
+  configures tokenizer padding automatically and merges adapters back
+  into the base model on completion.
 * **GGUF Export** – Convert your fine‑tuned HuggingFace model to the
   GGUF format and quantize it (e.g. `q4_k_m`) for maximum runtime
-  efficiency.  The `desktop_distill/export_gguf.py` script uses
-  `convert_hf_to_gguf.py` and `llama‑quantize` from llama.cpp to perform
-  conversion and quantization.
-* **Automated Workflow** – A Makefile and `automation/e2e.sh` script
+  efficiency.  The `desktop_distill/export_gguf.py` script resolves local
+  or remote models (via `huggingface_hub`), logs llama.cpp commands,
+  preserves tokenizer assets and optionally keeps temporary directories
+  for debugging failed runs.
+* **Automated Workflow & UI** – A Makefile, `automation/e2e.sh` script
+  and reusable command builders in `automation/pipeline_ops.py`
   orchestrate the entire process: labelling, training, export,
-  deployment and on‑device benchmarking.  A GitHub Action
-  (`.github/workflows/gguf-build.yml`) demonstrates how to export a GGUF
-  artifact whenever you push a version tag.
+  deployment and on-device benchmarking.  A Textual-powered dashboard
+  (`automation/ui_app.py`) reuses the same builders to provide a guided
+  terminal UI.
+* **Dataset Documentation** – `dataset/qf_corpus_blueprint/scripts/dataset_card.py`
+  summarises register and dialect coverage, hashes corpora and emits
+  provenance-rich dataset cards through a reusable library and CLI.
 * **Raspberry Pi Runtime** – Scripts in the `rpi4/` directory build
   llama.cpp on ARM64 (with OpenBLAS), download a pre‑built model if
-  desired, run the GGUF model interactively, or fetch embeddings.  Bench
-  scripts measure throughput on the Pi to guard against performance
-  regressions.
+  desired, run the GGUF model interactively, fetch embeddings, and
+  benchmark throughput to guard against regressions.
 
 ## Quickstart
 
@@ -49,7 +56,7 @@ optionally include:
 * `tool_schema` – a JSON schema string to constrain the output when
   `requires_json` is true
 
-Run the labeller on your desktop:
+Run the labeller on your desktop (add `--skip_existing` for incremental reruns):
 
 ```bash
 python desktop_distill/teacher_label.py \
@@ -65,7 +72,8 @@ field for each record.
 
 Use the labelled dataset to train a smaller model.  You can specify a
 base model from HuggingFace (e.g. `qwen/Qwen2.5-1.5B-Instruct`) and
-tune LoRA or DoRA adapters:
+tune LoRA or DoRA adapters, optionally enabling QLoRA (requires
+`bitsandbytes` and a CUDA GPU):
 
 ```bash
 python desktop_distill/train_student.py \
@@ -85,7 +93,10 @@ This will save a merged model in `trained_student/` ready for export.
 ### 3. Export to GGUF
 
 Convert the merged model to GGUF and quantize it to the desired
-bit‑width (default `q4_k_m`):
+bit‑width (default `q4_k_m`).  Remote HuggingFace models can be
+downloaded on demand, and private repositories are supported via
+`--hf-token` or the `HF_TOKEN`/`HUGGINGFACEHUB_API_TOKEN` environment
+variables:
 
 ```bash
 python desktop_distill/export_gguf.py \
@@ -147,8 +158,22 @@ python -m automation.ui_app
 
 The dashboard exposes dedicated panels for dataset labelling, student training,
 GGUF export and Raspberry Pi benchmarking.  Each panel validates your inputs,
-shows the exact command that will be executed, and streams live logs so you can
-track progress in real time.
+shows the exact command that will be executed (via
+`automation/pipeline_ops.py`), and streams live logs so you can track progress
+in real time.
+
+## Command Builders & Automation
+
+If you need to integrate the pipeline into another tool, import the
+dataclasses in `automation/pipeline_ops.py`.  Each builder validates
+common footguns (e.g. non-positive batch sizes) and returns the exact
+CLI command the scripts expect.  They are safe to pass directly into
+`subprocess` and power the Textual UI.
+
+For headless environments use the Makefile or `automation/e2e.sh`.  Both
+expect environment variables defined in `.env` (see table below) to know
+where to fetch datasets, store checkpoints and deploy artifacts on the
+Pi.
 
 ## Environment Variables
 
@@ -159,19 +184,35 @@ deployment:
 |---------------|-------------------------------------------------------|
 | `PI_HOST`     | Hostname or IP of your Raspberry Pi                  |
 | `PI_USER`     | Username used on the Pi (e.g. `pi`)                  |
-| `PI_DIR`      | Remote directory to store models and runtime data     |
-| `MODEL_ID`    | HF model id of the teacher (defaults to Dolphin)      |
+| `PI_DIR`      | Remote directory to store models and runtime data    |
+| `MODEL_ID`    | HF model id of the teacher (defaults to Dolphin)     |
 | `STUDENT_ID`  | HF model id of the base student model                |
 | `HF_TOKEN`    | Optional token for private HuggingFace models        |
+
+## Running Tests
+
+Pytest suites in `tests/` cover the GGUF exporter, command builders and
+the dataset blueprint utilities under
+`dataset/qf_corpus_blueprint/scripts/`.  Run them locally before
+contributing:
+
+```bash
+pip install -r automation/requirements.txt  # provides pytest & Textual deps
+pytest
+```
+
+The Python scripts target CPython 3.10+.  Static type hints are
+included throughout the automation helpers to aid IDE integration.
 
 ## Notes
 
 * Running large models may require a GPU; the training scripts support
-  gradient checkpointing and k‑bit training to reduce memory usage.
+  gradient checkpointing, bf16/fp16 selection and QLoRA to reduce memory
+  usage on commodity hardware.
 * The provided JSON schemas under `schemas/` help the assistant
   generate valid structured responses for tool calls.
-* See `AGENTS.md` for an overview of agent roles and best practices
-  when designing an on‑device assistant.
+* `AGENTS.md` documents each automation module and is the best starting
+  point when extending the pipeline.
 
 This repository is offered under the MIT License.  Contributions and
 improvements are welcome!

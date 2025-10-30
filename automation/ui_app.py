@@ -120,7 +120,6 @@ class PipelineApp(App[None]):
                 Input(placeholder="Learning rate (default 2e-5)", id="train-learning-rate"),
                 Checkbox(label="Use DoRA adapters", id="train-use-dora"),
                 Checkbox(label="Enable QLoRA", id="train-qlora"),
-                Checkbox(label="Gradient checkpointing", value=True, id="train-grad-check"),
                 Input(placeholder="Seed (optional)", id="train-seed"),
                 Input(placeholder="Logging steps (optional)", id="train-logging-steps"),
                 Button("Run training", id="run-train"),
@@ -216,7 +215,6 @@ class PipelineApp(App[None]):
                 learning_rate=self._optional_float("#train-learning-rate", default=2e-5),
                 use_dora=self.query_one("#train-use-dora", Checkbox).value,
                 qlora=self.query_one("#train-qlora", Checkbox).value,
-                use_gradient_checkpointing=self.query_one("#train-grad-check", Checkbox).value,
                 seed=self._optional_int("#train-seed"),
                 logging_steps=self._optional_int("#train-logging-steps"),
             )

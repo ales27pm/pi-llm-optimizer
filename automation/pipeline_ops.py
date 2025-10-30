@@ -106,7 +106,6 @@ class TrainStudentConfig:
     learning_rate: float = 2e-5
     use_dora: bool = False
     qlora: bool = False
-    use_gradient_checkpointing: bool = True
     seed: Optional[int] = None
     logging_steps: Optional[int] = None
 
@@ -133,7 +132,6 @@ class TrainStudentConfig:
         _extend(command, "--learning_rate", self.learning_rate)
         _extend_flag(command, "--use_dora", self.use_dora)
         _extend_flag(command, "--qlora", self.qlora)
-        _extend_flag(command, "--use_gradient_checkpointing", self.use_gradient_checkpointing)
         _extend(command, "--seed", self.seed)
         _extend(command, "--logging_steps", self.logging_steps)
         if self.extra_args:
