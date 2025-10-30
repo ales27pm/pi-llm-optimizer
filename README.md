@@ -135,6 +135,21 @@ python rpi4/bench/pi_bench.py \
 This will produce a CSV of init/decode/embedding timings and validate
 the minimum token rate.
 
+## Interactive Terminal UI
+
+Prefer a guided experience?  Install the UI dependencies and launch the
+Textual dashboard to drive each pipeline stage from an intuitive interface:
+
+```bash
+pip install -r automation/requirements.txt
+python -m automation.ui_app
+```
+
+The dashboard exposes dedicated panels for dataset labelling, student training,
+GGUF export and Raspberry Pi benchmarking.  Each panel validates your inputs,
+shows the exact command that will be executed, and streams live logs so you can
+track progress in real time.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and edit the values to configure remote
