@@ -8,7 +8,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Iterable
 
 try:
     from jsonschema import Draft7Validator  # type: ignore
@@ -17,22 +17,10 @@ except ImportError as exc:  # pragma: no cover - runtime dependency guard
         "jsonschema is required for validation. Install it with 'pip install jsonschema'."
     ) from exc
 
+from jsonl_utils import iter_jsonl
+
 
 LOGGER = logging.getLogger("qf.validate")
-
-
-def iter_jsonl(path: Path) -> Iterable[Tuple[int, dict]]:
-    """Yield (line_number, record) pairs from a JSONL file."""
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                yield line_number, json.loads(stripped)
-            except json.JSONDecodeError as error:
-                LOGGER.error("Line %s is not valid JSON: %s", line_number, error)
-                raise
 
 
 def validate_records(schema_path: Path, data_path: Path, fail_fast: bool) -> int:
@@ -41,8 +29,7 @@ def validate_records(schema_path: Path, data_path: Path, fail_fast: bool) -> int
 
     error_count = 0
     for line_number, record in iter_jsonl(data_path):
-        errors = sorted(validator.iter_errors(record), key=lambda e: e.path)
-        if errors:
+        if errors := sorted(validator.iter_errors(record), key=lambda e: e.path):
             error_count += len(errors)
             for err in errors:
                 location = " / ".join(map(str, err.absolute_path)) or "<root>"

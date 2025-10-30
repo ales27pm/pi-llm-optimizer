@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List
+
+from jsonl_utils import load_jsonl
 
 LOGGER = logging.getLogger("qf.balance")
 
@@ -23,46 +24,41 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     return parser.parse_args(list(argv))
 
 
-def load_jsonl(path: Path) -> List[dict]:
-    records: List[dict] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for idx, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                records.append(json.loads(stripped))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON at line {idx}: {exc}") from exc
-    return records
-
-
 def summarize(records: List[dict]) -> Dict[str, Counter]:
     register_counter = Counter()
     time_counter = Counter()
     region_counter = Counter()
     dialect_counter = Counter()
-    missing_fields = defaultdict(int)
+    missing_fields_absent = defaultdict(int)
+    missing_fields_null = defaultdict(int)
 
     for record in records:
-        register = record.get("register")
-        if register:
+        if (register := record.get("register")):
             register_counter[register] += 1
         else:
-            missing_fields["register"] += 1
+            if "register" in record:
+                missing_fields_null["register"] += 1
+            else:
+                missing_fields_absent["register"] += 1
 
-        time_period = record.get("time_period_code")
-        if time_period:
+        if (time_period := record.get("time_period_code")):
             time_counter[time_period] += 1
         else:
-            missing_fields["time_period_code"] += 1
+            key = "time_period_code"
+            if key in record:
+                missing_fields_null[key] += 1
+            else:
+                missing_fields_absent[key] += 1
 
         sociolinguistic = record.get("sociolinguistic_parameters") or {}
-        region = sociolinguistic.get("region_qc")
-        if region:
+        if (region := sociolinguistic.get("region_qc")):
             region_counter[region] += 1
         else:
-            missing_fields["sociolinguistic_parameters.region_qc"] += 1
+            field_name = "sociolinguistic_parameters.region_qc"
+            if "region_qc" in sociolinguistic:
+                missing_fields_null[field_name] += 1
+            else:
+                missing_fields_absent[field_name] += 1
 
         for tag in record.get("dialect_tag_list", []):
             dialect_counter[tag] += 1
@@ -72,7 +68,8 @@ def summarize(records: List[dict]) -> Dict[str, Counter]:
         "time_period": time_counter,
         "region": region_counter,
         "dialect": dialect_counter,
-        "missing": Counter(missing_fields),
+        "missing_absent": Counter(missing_fields_absent),
+        "missing_null": Counter(missing_fields_null),
     }
 
 
@@ -114,9 +111,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     print_section("Time period distribution", summary["time_period"], total_records)
     print_section("Region distribution", summary["region"], total_records)
 
-    top_n = args.top_n_tags
-    dialect_counter = summary["dialect"]
-    if dialect_counter:
+    if dialect_counter := summary["dialect"]:
+        top_n = args.top_n_tags
         print(f"\nTop {top_n} dialect tags:")
         for tag, count in dialect_counter.most_common(top_n):
             percentage = count / total_records * 100
@@ -124,11 +120,15 @@ def main(argv: Iterable[str] | None = None) -> int:
     else:
         print("\nNo dialect tags present in the dataset.")
 
-    missing_counter = summary["missing"]
-    if missing_counter:
-        print("\nMissing metadata fields:")
-        for key, count in missing_counter.most_common():
-            print(f"  - {key}: missing in {count} record(s)")
+    if missing_absent := summary["missing_absent"]:
+        print("\nMissing metadata fields (absent):")
+        for key, count in missing_absent.most_common():
+            print(f"  - {key}: absent in {count} record(s)")
+
+    if missing_null := summary["missing_null"]:
+        print("\nMissing metadata fields (null/empty):")
+        for key, count in missing_null.most_common():
+            print(f"  - {key}: null or empty in {count} record(s)")
 
     return 0
 

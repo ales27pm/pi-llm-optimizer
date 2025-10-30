@@ -55,8 +55,11 @@ docs/                 # Compliance & licensing guidance
 
 ## Extending the blueprint
 
-- Add new dialect tags by updating `vocab/dialect_tags.json` and extending
-  the heuristics inside `scripts/ingest_normalize.py`.
+- Add new dialect tags by updating `vocab/dialect_tags.json` and adjusting
+  the pattern-to-tag mappings in `vocab/dialect_rules.json` (no code changes
+  required; the normalizer loads the JSON rules at runtime).
+- Customize orthographic cleanup or MF normalization by editing
+  `vocab/normalization_rules.json` to add or refine regex substitutions.
 - Expand the JSON Schema with additional sociolinguistic attributes as
   your research requires.
 - Integrate the generated dataset into the distillation workflow by
