@@ -47,7 +47,6 @@ except ImportError:  # pragma: no cover - torch is an optional dependency for CP
 
 from tqdm.auto import tqdm  # type: ignore
 
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -87,7 +86,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", type=str, required=True, help="HF model identifier of the teacher")
     parser.add_argument("--input", type=Path, required=True, help="Path to input JSONL dataset")
     parser.add_argument("--output", type=Path, required=True, help="Path to output JSONL file")
-    parser.add_argument("--max_new_tokens", type=int, default=256, help="Maximum tokens to generate per example")
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=256,
+        help="Maximum tokens to generate per example",
+    )
     parser.add_argument("--do_sample", action="store_true", help="Enable sampling for generation")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     parser.add_argument("--device_map", type=str, default=None, help="Device map for model loading")
@@ -144,7 +148,7 @@ def _assign_responses(records: Sequence[Dict[str, object]], responses: Sequence[
         raise RuntimeError(
             f"Expected {len(records)} responses but received {len(responses)}."
         )
-    for record, response in zip(records, responses):
+    for record, response in zip(records, responses, strict=False):
         record["assistant"] = response
 
 

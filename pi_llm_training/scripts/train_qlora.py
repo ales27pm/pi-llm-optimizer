@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 import torch
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model
+from prompt_templates import extract_fields, llama_inst
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -19,8 +20,6 @@ from transformers import (
     set_seed,
 )
 from trl import SFTTrainer
-
-from prompt_templates import extract_fields, llama_inst
 
 
 @dataclass

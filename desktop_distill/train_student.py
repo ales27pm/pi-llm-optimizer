@@ -44,9 +44,12 @@ from transformers import (
 )
 
 try:
-    from peft import LoraConfig, get_peft_model  # type: ignore
     # DoRA is optional and may not be available
-    from peft import DORAConfig  # type: ignore
+    from peft import (  # type: ignore
+        DORAConfig,  # type: ignore
+        LoraConfig,
+        get_peft_model,
+    )
 except ImportError as e:
     raise ImportError(
         "Peft library is required for LoRA/DoRA. Install with `pip install peft`"
@@ -84,7 +87,7 @@ def preprocess_function(examples: Dict[str, List[Any]], tokenizer, max_length: i
     for sys_hint, user, assistant in zip(
         examples.get("system_hint", [""] * len(examples["assistant"])),
         examples.get("user", [""] * len(examples["assistant"])),
-        examples["assistant"],
+        examples["assistant"], strict=False,
     ):
         parts = []
         if sys_hint:
@@ -105,7 +108,9 @@ def preprocess_function(examples: Dict[str, List[Any]], tokenizer, max_length: i
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine tune a student model with LoRA/DoRA and QLoRA options.")
+    parser = argparse.ArgumentParser(
+        description="Fine tune a student model with LoRA/DoRA and QLoRA options."
+    )
     parser.add_argument(
         "--dataset",
         type=Path,
@@ -224,7 +229,8 @@ def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
     if args.qlora:
         if prepare_model_for_kbit_training is None:
             raise RuntimeError(
-                "prepare_model_for_kbit_training is unavailable. Please ensure you have peft >= 0.7.0 and bitsandbytes installed."
+                "prepare_model_for_kbit_training is unavailable. "
+                "Ensure peft>=0.7.0 and bitsandbytes are installed."
             )
         if not torch.cuda.is_available():
             raise RuntimeError("QLoRA requires a CUDA-capable GPU.")
@@ -260,7 +266,9 @@ def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
     target_mods = [m.strip() for m in args.target_modules.split(",")]
     if args.use_dora:
         if "DORAConfig" not in globals():
-            raise RuntimeError("DoRA is not available in your version of peft. Use --use_dora only if supported.")
+            raise RuntimeError(
+                "DoRA is not available in your version of peft. Use --use_dora only if supported."
+            )
         adapter_config = DORAConfig(
             r=args.lora_rank,
             lora_alpha=args.lora_alpha,

@@ -17,13 +17,12 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    Tabs,
     Tab,
+    Tabs,
     TextLog,
 )
 
 from .pipeline_ops import BenchmarkConfig, ExportConfig, TeacherLabelConfig, TrainStudentConfig
-
 
 APP_CSS_PATH = Path(__file__).with_name("ui_app.tcss")
 

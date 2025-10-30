@@ -5,14 +5,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dataset.qf_corpus_blueprint.scripts.anonymize import (
+from dataset.qf_corpus_blueprint.scripts.anonymize import (  # noqa: E402
     audit_privacy_levels,
     enforce_k_anonymity,
     ensure_l_diversity,
 )
-from dataset.qf_corpus_blueprint.scripts.distractor_generator import generate_distractors
-from dataset.qf_corpus_blueprint.scripts.g2p_pipeline import ProsodylabG2PPipeline
-from dataset.qf_corpus_blueprint.scripts.normalizer import NormalizationEngine, NeuralLemmatizer, normalize_text_qf
+from dataset.qf_corpus_blueprint.scripts.distractor_generator import (  # noqa: E402
+    generate_distractors,
+)
+from dataset.qf_corpus_blueprint.scripts.g2p_pipeline import ProsodylabG2PPipeline  # noqa: E402
+from dataset.qf_corpus_blueprint.scripts.normalizer import (  # noqa: E402
+    NeuralLemmatizer,
+    NormalizationEngine,
+    normalize_text_qf,
+)
 
 
 def test_yaml_normalization_pipeline_rules():
@@ -50,13 +56,21 @@ def test_anonymization_pipeline_enforces_k_and_l():
     records = [
         {
             "id": idx,
-            "sociolinguistic_parameters": {"region_qc": "Gaspésie", "age_group": "18_25", "gender": "F"},
+            "sociolinguistic_parameters": {
+                "region_qc": "Gaspésie",
+                "age_group": "18_25",
+                "gender": "F",
+            },
         }
         for idx in range(3)
     ] + [
         {
             "id": 100 + idx,
-            "sociolinguistic_parameters": {"region_qc": "Montréal", "age_group": "26_40", "gender": gender},
+            "sociolinguistic_parameters": {
+                "region_qc": "Montréal",
+                "age_group": "26_40",
+                "gender": gender,
+            },
         }
         for idx, gender in enumerate(["F", "M", "NB", "F", "M"])
     ]

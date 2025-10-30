@@ -1,17 +1,29 @@
 import importlib
+import importlib.util
 import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
 
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+EXPORT_GGUF_MODULE = PROJECT_ROOT / "desktop_distill" / "export_gguf.py"
 
-from desktop_distill import export_gguf
+
+def _load_export_gguf():
+    spec = importlib.util.spec_from_file_location(
+        "desktop_distill.export_gguf", EXPORT_GGUF_MODULE
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - defensive
+        raise ImportError("Unable to locate desktop_distill/export_gguf.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("desktop_distill.export_gguf", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+export_gguf = _load_export_gguf()
 
 
 def test_determine_output_filename_uses_directory_name(tmp_path: Path) -> None:
@@ -81,7 +93,7 @@ def test_resolve_model_path_prefers_local_directory(tmp_path: Path) -> None:
 
 
 def test_resolve_model_path_remote(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: List[dict[str, object]] = []
+    calls: list[dict[str, object]] = []
 
     def fake_snapshot_download(**kwargs):
         calls.append(kwargs)
