@@ -1,51 +1,52 @@
 #!/usr/bin/env bash
+# End‑to‑end automation script.
+#
+# This script orchestrates the entire workflow from dataset labelling
+# through training, GGUF export and deployment to a Raspberry Pi.  It
+# assumes that environment variables are defined in a `.env` file in
+# the repository root (see `.env.example` for a template).
+
 set -euo pipefail
-# End-to-end pipeline: distill → export GGUF → deploy to Pi → run + bench.
-# Requires env vars: PI_HOST, PI_USER, PI_DIR (e.g. /home/pi/models), MODEL_ID, STUDENT_ID
-# Optional: DATASET (path to JSONL), HF_TOKEN
 
-: "${PI_HOST:?set PI_HOST}"
-: "${PI_USER:?set PI_USER}"
-: "${PI_DIR:?set PI_DIR}"
-: "${MODEL_ID:=cognitivecomputations/Dolphin3.0-Llama3.1-8B}"
-: "${STUDENT_ID:=Qwen/Qwen2.5-1.5B-Instruct}"
-: "${DATASET:=dataset/dataset_quebecois_distill.jsonl}"
-: "${HF_TOKEN:=}"
+# Load environment variables
+if [[ -f .env ]]; then
+  # shellcheck source=/dev/null
+  source .env
+else
+  echo "Error: .env file not found.  Copy .env.example to .env and edit the values." >&2
+  exit 1
+fi
 
-PY=python3
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+echo "[1/5] Labelling dataset using teacher model ${MODEL_ID}"
+python desktop_distill/teacher_label.py \
+  --model "${MODEL_ID}" \
+  --input dataset/dataset_quebecois_distill.jsonl \
+  --output dataset/labelled.jsonl
 
-# 1) Train student with teacher labels (distillation)
-$PY "$ROOT/desktop_distill/train_student.py" \
-  --teacher "$MODEL_ID" \
-  --student "$STUDENT_ID" \
-  --dataset "$ROOT/$DATASET" \
-  --out "$ROOT/out/student" \
-  ${HF_TOKEN:+--hf-token "$HF_TOKEN"}
+echo "[2/5] Training student model ${STUDENT_ID}"
+python desktop_distill/train_student.py \
+  --dataset dataset/labelled.jsonl \
+  --base_model "${STUDENT_ID}" \
+  --output_dir trained_student \
+  --use_dora \
+  --qlora \
+  --num_epochs 1 \
+  --batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --learning_rate 2e-5
 
-# 2) Export to GGUF + quantize
-$PY "$ROOT/desktop_distill/export_gguf.py" \
-  --model "$ROOT/out/student" \
-  --out "$ROOT/out/gguf" \
-  --qtype q4_k_m \
-  ${HF_TOKEN:+--hf-token "$HF_TOKEN"}
-GGUF=$(ls -1 "$ROOT/out/gguf"/*.gguf | head -n1)
+echo "[3/5] Exporting to GGUF with quantization (q4_k_m)"
+python desktop_distill/export_gguf.py \
+  --model trained_student \
+  --outdir gguf_artifacts \
+  --qtype q4_k_m
 
-# 3) Copy to Pi
-rsync -av --progress "$GGUF" "$PI_USER@$PI_HOST:$PI_DIR/model-q4_k_m.gguf"
+echo "[4/5] Copying GGUF artifacts to ${PI_USER}@${PI_HOST}:${PI_DIR}"
+ssh "${PI_USER}@${PI_HOST}" "mkdir -p \"${PI_DIR}\""
+scp gguf_artifacts/*.gguf "${PI_USER}@${PI_HOST}:${PI_DIR}/"
+scp gguf_artifacts/tokenizer* "${PI_USER}@${PI_HOST}:${PI_DIR}/"
 
-# 4) Remote setup + run + bench
-ssh -o BatchMode=yes "$PI_USER@$PI_HOST" bash -lc "'
-  mkdir -p $PI_DIR && cd $PI_DIR
-  if [ ! -d "~/llama.cpp" ]; then
-    echo [*] First-time setup; building llama.cpp...
-    bash -lc "$(cat ~/pi-llm-optimizer/rpi4/setup_pi.sh)"
-  fi
-  echo [*] Running decode sanity...
-  "~/llama.cpp/build/bin/llama-cli" -m $PI_DIR/model-q4_k_m.gguf -n 16 -p "Bonjour!" || true
-'"
+echo "[5/5] Running benchmark on the Pi"
+ssh "${PI_USER}@${PI_HOST}" "bash -l -c 'cd ${PI_DIR} && ~/llama.cpp/build/bin/llama-cli -m $(ls *.gguf | head -n1) -c 1024 -b 64 -t 4 --prompt-cache prompt_cache.bin -p "Test" -n 10'"
 
-# 5) Local bench helper
-$PY "$ROOT/rpi4/bench/pi_bench.py" --model "$GGUF" --iterations 3 --csv "$ROOT/rpi4/bench/out/bench.csv"
-
-echo "[OK] E2E done. GGUF=$GGUF"
+echo "All steps completed successfully.  You can now run the model interactively on your Pi."
