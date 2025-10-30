@@ -85,10 +85,20 @@ def _bert_score(reference: str, candidate: str) -> float:
 
 
 def _generate_with_model(prompt: str, *, model: Optional[str] = None, num_candidates: int = 6) -> List[str]:
-    if pipeline is None:
+    if pipeline is None or model is None:
         return []
-    generator = pipeline("text-generation", model=model, max_new_tokens=48, do_sample=True, top_p=0.95)
-    outputs = generator(prompt, num_return_sequences=num_candidates)
+    try:
+        generator = pipeline(
+            "text-generation",
+            model=model,
+            max_new_tokens=48,
+            do_sample=True,
+            top_p=0.95,
+        )
+        outputs = generator(prompt, num_return_sequences=num_candidates)
+    except Exception as exc:  # pragma: no cover - optional dependency path
+        LOGGER.warning("Transformer generation failed, falling back to heuristics: %s", exc)
+        return []
     results: List[str] = []
     for item in outputs:
         text = item.get("generated_text", "")
@@ -129,8 +139,6 @@ def generate_distractors(
     filtered = [cand for cand in scored if cand.weighted_similarity <= max_similarity]
     if not filtered:
         filtered = sorted(scored, key=lambda cand: cand.weighted_similarity)[:2]
-    else:
-        filtered = filtered[: max(2, len(filtered))]
     payload = {
         "expression": expression,
         "definition_correct": definition_correct,

@@ -26,7 +26,7 @@
     "register_distribution": {
       "type": "object",
       "description": "Probability distribution for registers present in the split.",
-      "minProperties": 1,
+      "minProperties": 2,
       "additionalProperties": {
         "type": "number",
         "minimum": 0,

@@ -38,7 +38,7 @@ def ensure_l_diversity(
     *,
     quasi_identifiers: Sequence[str] = ("region_qc", "age_group"),
     sensitive_field: str = "gender",
-    l: int = 2,
+    l_threshold: int = 2,
 ) -> List[Dict[str, object]]:
     buckets: Dict[Tuple, List[Dict[str, object]]] = defaultdict(list)
     for record in records:
@@ -49,8 +49,8 @@ def ensure_l_diversity(
     diversified: List[Dict[str, object]] = []
     for key, bucket in buckets.items():
         values = {socio.get(sensitive_field, "unspecified") for _, socio in bucket}
-        if len(values) < l:
-            LOGGER.debug("Bucket %s below l=%s; masking %s", key, l, sensitive_field)
+        if len(values) < l_threshold:
+            LOGGER.debug("Bucket %s below l=%s; masking %s", key, l_threshold, sensitive_field)
             for record, sociolinguistic in bucket:
                 sociolinguistic[sensitive_field] = "unspecified"
                 record["sociolinguistic_parameters"] = sociolinguistic

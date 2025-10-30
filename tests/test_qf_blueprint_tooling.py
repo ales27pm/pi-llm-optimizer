@@ -68,7 +68,7 @@ def test_anonymization_pipeline_enforces_k_and_l():
         if entry["id"] < 3
     )
 
-    l_safe = ensure_l_diversity(k_safe, l=2)
+    l_safe = ensure_l_diversity(k_safe, l_threshold=2)
     audit = audit_privacy_levels(l_safe)
     assert audit["min_bucket_size"] >= 2
     assert any("unspecified" in bucket for bucket in audit["buckets"].values())

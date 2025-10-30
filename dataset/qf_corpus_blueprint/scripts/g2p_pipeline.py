@@ -117,7 +117,7 @@ class ProsodylabG2PPipeline:
         try:  # pragma: no cover - depends on optional lib
             phones = self._mfa_g2p(text)
         except Exception as exc:
-            LOGGER.error("MFA G2P generation failed: %s", exc)
+            LOGGER.exception("MFA G2P generation failed: %s", exc)
             return self._fallback_g2p(text)
         return " ".join(phones)
 
