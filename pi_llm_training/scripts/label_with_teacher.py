@@ -64,49 +64,62 @@ def main():
     )
     model.eval()
 
-    rows = list(iter_jsonl(Path(args.in_file)))
-    outs: List[Dict] = []
-    for batch in batchify(rows, args.batch_size):
-        prompts = []
-        metas = []
-        for ex in batch:
-            fld = extract_fields(ex)
-            pack = llama_inst(fld["system"], fld["user"], assistant=None)
-            prompts.append(pack["prompt"])
-            metas.append(ex)
-        inputs = tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=2048,
-        ).to(model.device)
-        with torch.no_grad():
-            generated = model.generate(
-                **inputs,
-                do_sample=True,
-                max_new_tokens=args.max_new_tokens,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                eos_token_id=tokenizer.eos_token_id,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-        decoded = tokenizer.batch_decode(generated, skip_special_tokens=True)
-        for prompt, full_text, meta in zip(prompts, decoded, metas):
-            assistant = full_text[len(prompt) :]
-            if not full_text.startswith(prompt):
-                assistant = full_text
-            meta_out = dict(meta)
-            meta_out["assistant"] = assistant.strip()
-            outs.append(meta_out)
+from typing import Dict, Iterable, List
 
-    with Path(args.out_file).open("w", encoding="utf-8") as w:
-        for ex in outs:
-            w.write(json.dumps(ex, ensure_ascii=False) + "\n")
+def batchify(items: Iterable[Dict], batch_size: int):
+    batch: List[Dict] = []
+    for item in items:
+        batch.append(item)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+    src_path = Path(args.in_file)
+    out_path = Path(args.out_file)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    labeled = 0
+    with out_path.open("w", encoding="utf-8") as w:
+        for batch in batchify(iter_jsonl(src_path), args.batch_size):
+            prompts = []
+            metas = []
+            for ex in batch:
+                fld = extract_fields(ex)
+                pack = llama_inst(fld["system"], fld["user"], assistant=None)
+                prompts.append(pack["prompt"])
+                metas.append(ex)
+            inputs = tokenizer(
+                prompts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=2048,
+            ).to(model.device)
+            with torch.no_grad():
+                generated = model.generate(
+                    **inputs,
+                    do_sample=True,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    eos_token_id=tokenizer.eos_token_id,
+                    pad_token_id=tokenizer.eos_token_id,
+                )
+            decoded = tokenizer.batch_decode(generated, skip_special_tokens=True)
+            for prompt, full_text, meta in zip(prompts, decoded, metas):
+                assistant = full_text[len(prompt) :]
+                if not full_text.startswith(prompt):
+                    assistant = full_text
+                meta_out = dict(meta)
+                meta_out["assistant"] = assistant.strip()
+                w.write(json.dumps(meta_out, ensure_ascii=False) + "\n")
+                labeled += 1
 
     print(
         json.dumps(
-            {"input": args.in_file, "output": args.out_file, "labeled": len(outs)},
+            {"input": args.in_file, "output": args.out_file, "labeled": labeled},
             ensure_ascii=False,
         )
     )
