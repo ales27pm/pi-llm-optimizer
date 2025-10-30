@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pi-llm-optimizer.local/schema/qf_record.schema.json",
+  "title": "Québec French Corpus Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "text_orthographic_raw",
+    "dialect_tag_list",
+    "register",
+    "sociolinguistic_parameters",
+    "time_period_code",
+    "source_corpus_id"
+  ],
+  "properties": {
+    "record_id": {
+      "description": "Deterministic identifier that is unique within the corpus.",
+      "type": "string",
+      "minLength": 1
+    },
+    "text_orthographic_raw": {
+      "description": "Original Québec French text preserving dialect spellings and contractions.",
+      "type": "string",
+      "minLength": 1
+    },
+    "text_normalized_mf": {
+      "description": "Modern French normalization used for cross-dialect evaluation.",
+      "type": "string",
+      "minLength": 1
+    },
+    "dialect_tag_list": {
+      "description": "Controlled dialect feature tags that apply to the record.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "register": {
+      "description": "Sociolinguistic register label.",
+      "type": "string",
+      "enum": [
+        "Formal",
+        "Casual",
+        "Spontaneous_Speech",
+        "Literary",
+        "Broadcast",
+        "Academic",
+        "Joual"
+      ]
+    },
+    "sociolinguistic_parameters": {
+      "description": "Coarse-grained sociolinguistic descriptors for the speaker(s).",
+      "type": "object",
+      "required": [
+        "region_qc",
+        "age_group",
+        "education_level",
+        "gender"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "region_qc": {
+          "type": "string",
+          "enum": [
+            "Montréal",
+            "Québec_City",
+            "Outaouais",
+            "Estrie",
+            "Saguenay",
+            "Bas-Saint-Laurent",
+            "Gaspésie",
+            "Abitibi",
+            "Côte-Nord",
+            "Chaudière-Appalaches",
+            "Laurentides",
+            "Lanaudière"
+          ]
+        },
+        "age_group": {
+          "type": "string",
+          "enum": [
+            "Under_18",
+            "18_25",
+            "26_40",
+            "41_60",
+            "60_plus"
+          ]
+        },
+        "education_level": {
+          "type": "string",
+          "enum": [
+            "Primary",
+            "Secondary",
+            "CEGEP",
+            "University",
+            "Graduate",
+            "Other"
+          ]
+        },
+        "gender": {
+          "type": "string",
+          "enum": [
+            "Woman",
+            "Man",
+            "Nonbinary",
+            "Unspecified"
+          ]
+        }
+      }
+    },
+    "time_period_code": {
+      "description": "Fifty-year bucket representing when the utterance was produced.",
+      "type": "string",
+      "enum": [
+        "1851-1900",
+        "1901-1950",
+        "1951-2000",
+        "2001-2050"
+      ]
+    },
+    "phonetic_transcription_QF": {
+      "description": "Optional phonetic transcription in a Québec French-appropriate phone set.",
+      "type": "string"
+    },
+    "source_corpus_id": {
+      "description": "Identifier or citation that traces the original corpus or collection.",
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "description": "Optional free-form notes for annotators.",
+      "type": "string"
+    }
+  }
+}

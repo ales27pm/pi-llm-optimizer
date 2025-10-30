@@ -1,0 +1,37 @@
+[
+  {
+    "pattern": "\\bà matin\\b",
+    "replacement": "ce matin",
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\ba matin\\b",
+    "replacement": "ce matin",
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\basteur\\b",
+    "replacement": "maintenant",
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\bchu\\b",
+    "replacement": "je suis",
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\bchuis\\b",
+    "replacement": "je suis",
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\bj't\\b",
+    "replacement": "je te",
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b[jt]'es\\b",
+    "replacement": "tu es",
+    "flags": ["IGNORECASE"]
+  }
+]

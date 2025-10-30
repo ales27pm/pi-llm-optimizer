@@ -1,0 +1,42 @@
+[
+  {
+    "pattern": "\\b(?:hey|ok|anyway|whatever|cool|weekend|lunch)\\b",
+    "tags": ["Anglicism_Lexical", "CodeSwitch_English"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b[tdjlcs]'\\w+",
+    "tags": ["Contraction_QF"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b[dtjl]'[a-zàâçéèêëîïôùûüœ]+",
+    "tags": ["Elision_Determiner"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b(ts|dz)[ié]\\b",
+    "tags": ["Affrication_Coronal"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b\\w+-tu\\b",
+    "tags": ["Phonological_Tu_S"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b(tabarnak|câlice|osti|sacrament)\\b",
+    "tags": ["Lexeme_Tabarnak", "Register_Joual"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\basteur\\b",
+    "tags": ["Asteur_Form"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b[àa]\\s+matin\\b",
+    "tags": ["A_Matin_Form"],
+    "flags": ["IGNORECASE"]
+  }
+]

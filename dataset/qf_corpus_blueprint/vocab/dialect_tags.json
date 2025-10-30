@@ -1,0 +1,12 @@
+[
+  {"tag": "Anglicism_Lexical", "description": "Contains an English lexical borrowing (e.g., \"le lunch\")."},
+  {"tag": "Contraction_QF", "description": "Québec French-specific contraction or clitic (e.g., \"j'sais\")."},
+  {"tag": "Affrication_Coronal", "description": "Demonstrates /t/ or /d/ affrication before high front vowels."},
+  {"tag": "Asteur_Form", "description": "Includes variants of \"asteur\" (nowadays)."},
+  {"tag": "A_Matin_Form", "description": "Includes variants of \"à matin\" (this morning)."},
+  {"tag": "CodeSwitch_English", "description": "Contains a stretch of English inside a French utterance."},
+  {"tag": "Register_Joual", "description": "Markedly colloquial, joual register."},
+  {"tag": "Elision_Determiner", "description": "Determiner vowel deletion (e.g., \"d'la\", \"t'sais\")."},
+  {"tag": "Phonological_Tu_S", "description": "Features \"tu\" used as a question particle."},
+  {"tag": "Lexeme_Tabarnak", "description": "Contains a sacre lexeme (e.g., tabarnak, câlice)."}
+]
