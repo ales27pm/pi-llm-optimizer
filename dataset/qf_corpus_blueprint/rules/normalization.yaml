@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "2.0.0"
+  description: |
+    Linguist-maintained normalization rules for Québecois French text. The
+    categories follow orthographic, phonological and syntactic guidelines and
+    each rule declares the dialectal tag that should be added when triggered.
+  default_regex_flags:
+    - IGNORECASE
+orthographic_rules:
+  - pattern: "\\bchu\\b"
+    replacement: "je suis"
+    tag: "Contraction_QF"
+    description: "Common contraction of 'je suis'."
+  - pattern: "\\bd'te\\b"
+    replacement: "de te"
+    tag: "Elision_Dte"
+    description: "Restores elided 'de te' sequence."
+  - pattern: "\\bà matin\\b"
+    replacement: "ce matin"
+    tag: "Temporal_QF"
+    description: "Normalizes temporal colloquialism."
+phonological_rules:
+  - pattern: "\\bben\\b"
+    replacement: "bien"
+    tag: "Phonetic_Reduction"
+    description: "Phonetic reduction of 'bien'."
+  - pattern: "\\btainte?\\b"
+    replacement: "peinture"
+    tag: "Nasalization_QF"
+    description: "Handles nasal assimilation around 'peinture'."
+syntactic_rules:
+  - pattern: "\\bj'avons\\b"
+    replacement: "nous avons"
+    tag: "Plural_Pronoun_QF"
+    description: "Agreement with plural subject."
+  - pattern: "\\bfaque\\b"
+    replacement: "donc"
+    tag: "Discourse_Marker_QF"
+    description: "Maps discourse connector to standard register."
