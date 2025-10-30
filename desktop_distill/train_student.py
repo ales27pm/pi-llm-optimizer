@@ -1,119 +1,290 @@
-#!/usr/bin/env python3
-# Lightweight student trainer with PEFT (QLoRA/DoRA) and teacher-guided labels.
-import argparse, json, math, os, sys
+"""
+train_student.py
+================
+
+This script fine‑tunes a compact language model (the "student") on a
+labelled dataset produced from a teacher model.  It supports LoRA or
+DoRA adapters, mixed precision, gradient checkpointing and optional
+QLoRA/k‑bit training.  At the end of training the merged model is
+saved to the specified output directory where it can later be exported
+to GGUF.
+
+Example usage::
+
+    python train_student.py \
+        --dataset data/labelled.jsonl \
+        --base_model qwen/Qwen2.5-1.5B-Instruct \
+        --output_dir models/student \
+        --use_dora \
+        --qlora \
+        --num_epochs 1 \
+        --batch_size 2 \
+        --gradient_accumulation_steps 8 \
+        --learning_rate 2e-5
+
+It is recommended to run this script on a machine with a GPU.  For
+QLoRA, you must have the `bitsandbytes` library installed.
+
+"""
+
+import argparse
+import json
 from pathlib import Path
-from dataclasses import dataclass
+from typing import Any, Dict, List
 
 import torch
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, DataCollatorForLanguageModeling
-from peft import LoraConfig, get_peft_model
+from datasets import Dataset
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+    DataCollatorForLanguageModeling,
+)
 
-@dataclass
-class Args:
-    teacher: str
-    student: str
-    dataset: str
-    out: str
-    hf_token: str|None
-    lr: float = 2e-4
-    epochs: int = 1
-    micro_bsz: int = 8
-    grad_acc: int = 4
-    cutoff_len: int = 1024
-    lora_r: int = 16
-    lora_alpha: int = 32
-    lora_dropout: float = 0.05
+try:
+    from peft import LoraConfig, get_peft_model  # type: ignore
+    # DoRA is optional and may not be available
+    from peft import DORAConfig  # type: ignore
+except ImportError as e:
+    raise ImportError(
+        "Peft library is required for LoRA/DoRA. Install with `pip install peft`"
+    ) from e
 
-# For simplicity we assume the dataset JSONL already contains user/system + assistant fields for supervised distill.
-# If assistant is empty, you can pre-label with Dolphin externally and then run this trainer.
-
-SYSTEM_KEY = "system_hint"
-USER_KEY = "user"
-ASSIST_KEY = "assistant"
-
-PROMPT_TMPL = "<|system|>\n{}\n<|user|>\n{}\n<|assistant|>\n"
-
-def parse_args() -> Args:
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--teacher', required=True)
-    ap.add_argument('--student', required=True)
-    ap.add_argument('--dataset', required=True)
-    ap.add_argument('--out', required=True)
-    ap.add_argument('--hf-token', dest='hf_token')
-    ap.add_argument('--epochs', type=int, default=1)
-    ap.add_argument('--lr', type=float, default=2e-4)
-    ap.add_argument('--micro-bsz', type=int, default=8)
-    ap.add_argument('--grad-acc', type=int, default=4)
-    ap.add_argument('--cutoff-len', type=int, default=1024)
-    ap.add_argument('--lora-r', type=int, default=16)
-    ap.add_argument('--lora-alpha', type=int, default=32)
-    ap.add_argument('--lora-dropout', type=float, default=0.05)
-    a = ap.parse_args()
-    return Args(a.teacher, a.student, a.dataset, a.out, a.hf_token, a.lr, a.epochs, a.micro_bsz, a.grad_acc, a.cutoff_len, a.lora_r, a.lora_alpha, a.lora_dropout)
+try:
+    from peft.tuners.lora import (
+        prepare_model_for_kbit_training,  # type: ignore
+    )
+except Exception:
+    prepare_model_for_kbit_training = None  # type: ignore
 
 
-def build_dataset(path: str):
-    # Load JSONL as HF dataset
-    ds = load_dataset('json', data_files={'train': path})['train']
-    # Filter rows that have non-empty assistant text
-    def has_label(x):
-        return x.get(ASSIST_KEY) is not None and len(str(x.get(ASSIST_KEY))) > 0
-    ds = ds.filter(has_label)
-    return ds
+def load_dataset_from_jsonl(path: Path) -> Dataset:
+    """Load a JSONL file into a HuggingFace Dataset of strings."""
+    records: List[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            if "assistant" not in rec:
+                raise ValueError(
+                    f"Missing 'assistant' in record: {rec}. Make sure to label with teacher_label.py first."
+                )
+            records.append(rec)
+    return Dataset.from_list(records)
 
 
-def format_example(ex: dict) -> str:
-    sysmsg = ex.get(SYSTEM_KEY, "Tu es un assistant québécois, honnête et curieux.")
-    user = ex.get(USER_KEY, "")
-    assistant = ex.get(ASSIST_KEY, "")
-    return PROMPT_TMPL.format(sysmsg, user) + assistant
+def preprocess_function(examples: Dict[str, List[Any]], tokenizer, max_length: int) -> Dict[str, Any]:
+    """Tokenize and concatenate the system/user/assistant for causal LM training."""
+    input_texts = []
+    for sys_hint, user, assistant in zip(
+        examples.get("system_hint", [""] * len(examples["assistant"])),
+        examples.get("user", [""] * len(examples["assistant"])),
+        examples["assistant"],
+    ):
+        parts = []
+        if sys_hint:
+            parts.append(str(sys_hint).strip())
+        parts.append(str(user).strip())
+        parts.append(str(assistant).strip())
+        input_texts.append("\n\n".join(parts))
+    tokenized = tokenizer(
+        input_texts,
+        truncation=True,
+        max_length=max_length,
+        padding=False,
+    )
+    return {
+        "input_ids": tokenized["input_ids"],
+        "attention_mask": tokenized["attention_mask"],
+    }
 
 
-def tokenize(ds, tok, cutoff):
-    def _tok(x):
-        text = format_example(x)
-        return tok(text, truncation=True, max_length=cutoff)
-    return ds.map(_tok, batched=False, remove_columns=ds.column_names)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Fine tune a student model with LoRA/DoRA and QLoRA options.")
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        required=True,
+        help="Path to the labelled JSONL dataset produced by teacher_label.py",
+    )
+    parser.add_argument(
+        "--base_model",
+        type=str,
+        required=True,
+        help="Base model identifier (e.g., qwen/Qwen2.5-1.5B-Instruct)",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Directory to save the fine tuned model",
+    )
+    parser.add_argument(
+        "--use_dora",
+        action="store_true",
+        help="Use DoRA adapter instead of LoRA (requires peft>=0.10.0)",
+    )
+    parser.add_argument(
+        "--qlora",
+        action="store_true",
+        help="Enable QLoRA (k‑bit) training; requires bitsandbytes and a supported GPU",
+    )
+    parser.add_argument("--num_epochs", type=int, default=1, help="Number of training epochs")
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Per‑device train batch size (before gradient accumulation)",
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=16,
+        help="Number of steps to accumulate gradients (for effective batch size)",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=2e-5,
+        help="Initial learning rate",
+    )
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=1024,
+        help="Maximum sequence length for training",
+    )
+    parser.add_argument(
+        "--lr_scheduler_type",
+        type=str,
+        default="cosine",  # can be linear, cosine, cosine_with_restarts, polynomial
+        help="LR scheduler type",
+    )
+    parser.add_argument(
+        "--warmup_steps",
+        type=int,
+        default=0,
+        help="Number of warmup steps for scheduler",
+    )
+    parser.add_argument(
+        "--lora_rank",
+        type=int,
+        default=8,
+        help="Rank of the LoRA/DoRA adapters",
+    )
+    parser.add_argument(
+        "--lora_alpha",
+        type=float,
+        default=32,
+        help="Alpha scaling factor for LoRA/DoRA",
+    )
+    parser.add_argument(
+        "--lora_dropout",
+        type=float,
+        default=0.05,
+        help="Dropout probability for LoRA/DoRA",
+    )
+    parser.add_argument(
+        "--target_modules",
+        type=str,
+        default="q_proj,k_proj,v_proj,o_proj",
+        help="Comma separated list of target modules for LoRA/DoRA adapters",
+    )
+    args = parser.parse_args()
 
+    # Load dataset
+    raw_dataset = load_dataset_from_jsonl(args.dataset)
+    # Tokenizer must handle unknown tokens gracefully
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
-def main():
-    args = parse_args()
-    out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
-
-    token = args.hf_token
-    tok = AutoTokenizer.from_pretrained(args.student, use_fast=True, token=token)
-    base = AutoModelForCausalLM.from_pretrained(args.student, torch_dtype=torch.float16, device_map='auto', token=token)
-
-    lora = LoraConfig(r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout, bias='none', task_type='CAUSAL_LM')
-    model = get_peft_model(base, lora)
-
-    ds = build_dataset(args.dataset)
-    tok_ds = tokenize(ds, tok, args.cutoff_len)
-
-    collator = DataCollatorForLanguageModeling(tok, mlm=False)
-    steps_per_epoch = math.ceil(len(tok_ds) / (args.micro_bsz * args.grad_acc))
-
-    training_args = TrainingArguments(
-        output_dir=str(out),
-        per_device_train_batch_size=args.micro_bsz,
-        gradient_accumulation_steps=args.grad_acc,
-        learning_rate=args.lr,
-        num_train_epochs=args.epochs,
-        bf16=torch.cuda.is_available(),
-        logging_steps=max(1, steps_per_epoch//10),
-        save_strategy='epoch',
-        report_to=[],
+    # Preprocess the dataset
+    tokenized_dataset = raw_dataset.map(
+        lambda ex: preprocess_function(ex, tokenizer, args.max_length),
+        batched=True,
+        remove_columns=raw_dataset.column_names,
     )
 
-    trainer = Trainer(model=model, args=training_args, train_dataset=tok_ds, data_collator=collator)
+    # Create data collator for causal language modeling
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer, mlm=False
+    )
+
+    # Load base model
+    model = AutoModelForCausalLM.from_pretrained(
+        args.base_model,
+        torch_dtype=torch.float16,
+    )
+    # Enable gradient checkpointing to reduce memory usage
+    model.gradient_checkpointing_enable()
+
+    # Prepare for QLoRA if requested
+    if args.qlora:
+        if prepare_model_for_kbit_training is None:
+            raise RuntimeError(
+                "prepare_model_for_kbit_training is unavailable. Please ensure you have peft >= 0.7.0 and bitsandbytes installed."
+            )
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=True,
+        )
+
+    # Build LoRA or DoRA adapter config
+    target_mods = [m.strip() for m in args.target_modules.split(",")]
+    if args.use_dora:
+        # Use DoRA if available; fall back to LoRA if DORAConfig is missing
+        if "DORAConfig" not in globals():
+            raise RuntimeError("DoRA is not available in your version of peft. Use --use_dora only if supported.")
+        adapter_config = DORAConfig(
+            r=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=target_mods,
+        )
+    else:
+        adapter_config = LoraConfig(
+            r=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=target_mods,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+    model = get_peft_model(model, adapter_config)
+    model.print_trainable_parameters()
+
+    # Define training args; default to cosine scheduler but allow override
+    training_args = TrainingArguments(
+        output_dir=str(args.output_dir),
+        overwrite_output_dir=True,
+        per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        num_train_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
+        warmup_steps=args.warmup_steps,
+        lr_scheduler_type=args.lr_scheduler_type,
+        fp16=True,
+        logging_steps=10,
+        save_strategy="no",
+        gradient_checkpointing=True,
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_dataset,
+        data_collator=data_collator,
+    )
+
     trainer.train()
 
-    # Merge LoRA and save as HF format
-    model = model.merge_and_unload()
-    model.save_pretrained(out)
-    tok.save_pretrained(out)
-    print(json.dumps({"saved": str(out)}, indent=2))
+    # Merge adapters into the base model and save
+    model.save_pretrained(str(args.output_dir))
+    tokenizer.save_pretrained(str(args.output_dir))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -1,0 +1,5 @@
+transformers>=4.32.0
+datasets>=2.14.0
+peft>=0.7.0
+bitsandbytes>=0.41.0; sys_platform != 'darwin'
+tqdm>=4.66.0

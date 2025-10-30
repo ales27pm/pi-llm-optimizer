@@ -1,0 +1,24 @@
+# Example quantization schedule for mixed precision training
+#
+# Each entry in `layers` config defines a set of modules and the
+# desired bit‑width (or quantization type).  This file is optional
+# and is not currently consumed by the training script, but it serves
+# as a template for implementing more granular quantisation in the
+# future.
+
+layers:
+  # Keep the embedding layers at higher precision
+  - name: embeddings
+    bits: 16
+  # Attention projections can be quantised to 4 bits with k‑grouping
+  - name: attn
+    bits: 4
+    qtype: q4_k_m
+  # MLP (feed‑forward) layers can be quantised more aggressively
+  - name: mlp
+    bits: 3
+    qtype: q3_k_m
+
+# Additional global settings (ignored by default)
+global:
+  qtype: q4_k_m
