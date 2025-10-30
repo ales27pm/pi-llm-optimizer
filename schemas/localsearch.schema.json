@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LocalSearchResults",
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "rating": { "type": "number", "minimum": 0, "maximum": 5 },
+          "address": { "type": "string" },
+          "phone": { "type": "string" }
+        },
+        "required": ["name", "rating", "address"]
+      }
+    }
+  },
+  "required": ["results"]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EmailSummary",
+  "type": "object",
+  "properties": {
+    "emails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string" },
+          "subject": { "type": "string" },
+          "date": { "type": "string", "format": "date" },
+          "summary": { "type": "string" }
+        },
+        "required": ["from", "subject", "date", "summary"]
+      }
+    }
+  },
+  "required": ["emails"]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CalendarEvents",
+  "type": "object",
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "start_time": { "type": "string", "format": "date-time" },
+          "end_time": { "type": "string", "format": "date-time" },
+          "location": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["title", "start_time", "end_time"]
+      }
+    }
+  },
+  "required": ["events"]
+}
