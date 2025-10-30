@@ -30,7 +30,7 @@ QLoRA, you must have the `bitsandbytes` library installed.
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from datasets import Dataset
@@ -104,7 +104,7 @@ def preprocess_function(examples: Dict[str, List[Any]], tokenizer, max_length: i
     }
 
 
-def main() -> None:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fine tune a student model with LoRA/DoRA and QLoRA options.")
     parser.add_argument(
         "--dataset",
@@ -132,14 +132,14 @@ def main() -> None:
     parser.add_argument(
         "--qlora",
         action="store_true",
-        help="Enable QLoRA (k‑bit) training; requires bitsandbytes and a supported GPU",
+        help="Enable QLoRA (k-bit) training; requires bitsandbytes and a supported GPU",
     )
     parser.add_argument("--num_epochs", type=int, default=1, help="Number of training epochs")
     parser.add_argument(
         "--batch_size",
         type=int,
         default=1,
-        help="Per‑device train batch size (before gradient accumulation)",
+        help="Per-device train batch size (before gradient accumulation)",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -162,7 +162,7 @@ def main() -> None:
     parser.add_argument(
         "--lr_scheduler_type",
         type=str,
-        default="cosine",  # can be linear, cosine, cosine_with_restarts, polynomial
+        default="cosine",
         help="LR scheduler type",
     )
     parser.add_argument(
@@ -195,27 +195,30 @@ def main() -> None:
         default="q_proj,k_proj,v_proj,o_proj",
         help="Comma separated list of target modules for LoRA/DoRA adapters",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    # Load dataset
-    raw_dataset = load_dataset_from_jsonl(args.dataset)
-    # Tokenizer must handle unknown tokens gracefully
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+
+def _prepare_tokenizer(base_model: str):
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
 
-    # Preprocess the dataset
+
+def _build_data_pipeline(
+    dataset_path: Path, tokenizer, max_length: int
+) -> Tuple[Dataset, DataCollatorForLanguageModeling]:
+    raw_dataset = load_dataset_from_jsonl(dataset_path)
     tokenized_dataset = raw_dataset.map(
-        lambda ex: preprocess_function(ex, tokenizer, args.max_length),
+        lambda ex: preprocess_function(ex, tokenizer, max_length),
         batched=True,
         remove_columns=raw_dataset.column_names,
     )
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    return tokenized_dataset, data_collator
 
-    # Create data collator for causal language modeling
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer, mlm=False
-    )
 
+def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
     model_kwargs: Dict[str, Any] = {}
     torch_dtype: Optional[torch.dtype]
     if args.qlora:
@@ -238,7 +241,6 @@ def main() -> None:
     else:
         torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    # Load base model
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         torch_dtype=torch_dtype,
@@ -255,10 +257,8 @@ def main() -> None:
             use_gradient_checkpointing=True,
         )
 
-    # Build LoRA or DoRA adapter config
     target_mods = [m.strip() for m in args.target_modules.split(",")]
     if args.use_dora:
-        # Use DoRA if available; fall back to LoRA if DORAConfig is missing
         if "DORAConfig" not in globals():
             raise RuntimeError("DoRA is not available in your version of peft. Use --use_dora only if supported.")
         adapter_config = DORAConfig(
@@ -278,12 +278,14 @@ def main() -> None:
         )
     model = get_peft_model(model, adapter_config)
     model.print_trainable_parameters()
+    return model
 
-    # Define training args; default to cosine scheduler but allow override
+
+def _create_training_arguments(args: argparse.Namespace) -> TrainingArguments:
     fp16 = torch.cuda.is_available() and not args.qlora
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported() and not args.qlora
 
-    training_args = TrainingArguments(
+    return TrainingArguments(
         output_dir=str(args.output_dir),
         overwrite_output_dir=True,
         per_device_train_batch_size=args.batch_size,
@@ -299,6 +301,33 @@ def main() -> None:
         gradient_checkpointing=True,
     )
 
+
+def _merge_and_save_model(model, tokenizer, output_dir: Path, use_qlora: bool) -> None:
+    if hasattr(model, "merge_and_unload"):
+        merged = model.merge_and_unload()
+    else:
+        merged = model
+
+    if use_qlora:
+        merged = merged.to(torch.float16)
+
+    if hasattr(merged, "to"):
+        merged = merged.to("cpu")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    merged.save_pretrained(str(output_dir))
+    tokenizer.save_pretrained(str(output_dir))
+
+def main() -> None:
+    args = _parse_args()
+
+    tokenizer = _prepare_tokenizer(args.base_model)
+    tokenized_dataset, data_collator = _build_data_pipeline(
+        args.dataset, tokenizer, args.max_length
+    )
+    model = _initialise_model(args, tokenizer)
+    training_args = _create_training_arguments(args)
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -308,22 +337,7 @@ def main() -> None:
 
     trainer.train()
 
-    # Merge adapters into the base model (for LoRA/DoRA) before saving
-    if hasattr(model, "merge_and_unload"):
-        merged = model.merge_and_unload()
-    else:
-        merged = model
-
-    # For QLoRA, move back to CPU in float16 to ensure compatibility with export scripts
-    if args.qlora:
-        merged = merged.to(torch.float16)
-
-    if hasattr(merged, "to"):
-        merged = merged.to("cpu")
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    merged.save_pretrained(str(args.output_dir))
-    tokenizer.save_pretrained(str(args.output_dir))
+    _merge_and_save_model(model, tokenizer, args.output_dir, args.qlora)
 
 
 if __name__ == "__main__":
