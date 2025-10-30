@@ -30,16 +30,17 @@ QLoRA, you must have the `bitsandbytes` library installed.
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 from datasets import Dataset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    BitsAndBytesConfig,
+    DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
-    DataCollatorForLanguageModeling,
 )
 
 try:
@@ -72,6 +73,8 @@ def load_dataset_from_jsonl(path: Path) -> Dataset:
                     f"Missing 'assistant' in record: {rec}. Make sure to label with teacher_label.py first."
                 )
             records.append(rec)
+    if not records:
+        raise ValueError(f"No records found in dataset {path}. Ensure the file is not empty.")
     return Dataset.from_list(records)
 
 
@@ -213,20 +216,40 @@ def main() -> None:
         tokenizer=tokenizer, mlm=False
     )
 
-    # Load base model
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base_model,
-        torch_dtype=torch.float16,
-    )
-    # Enable gradient checkpointing to reduce memory usage
-    model.gradient_checkpointing_enable()
-
-    # Prepare for QLoRA if requested
+    model_kwargs: Dict[str, Any] = {}
+    torch_dtype: Optional[torch.dtype]
     if args.qlora:
         if prepare_model_for_kbit_training is None:
             raise RuntimeError(
                 "prepare_model_for_kbit_training is unavailable. Please ensure you have peft >= 0.7.0 and bitsandbytes installed."
             )
+        if not torch.cuda.is_available():
+            raise RuntimeError("QLoRA requires a CUDA-capable GPU.")
+        compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        quant_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        model_kwargs["quantization_config"] = quant_config
+        model_kwargs["device_map"] = "auto"
+        torch_dtype = None
+    else:
+        torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
+    # Load base model
+    model = AutoModelForCausalLM.from_pretrained(
+        args.base_model,
+        torch_dtype=torch_dtype,
+        **model_kwargs,
+    )
+
+    model.config.use_cache = False
+    if torch.cuda.is_available():
+        model.gradient_checkpointing_enable()
+
+    if args.qlora:
         model = prepare_model_for_kbit_training(
             model,
             use_gradient_checkpointing=True,
@@ -257,6 +280,9 @@ def main() -> None:
     model.print_trainable_parameters()
 
     # Define training args; default to cosine scheduler but allow override
+    fp16 = torch.cuda.is_available() and not args.qlora
+    bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported() and not args.qlora
+
     training_args = TrainingArguments(
         output_dir=str(args.output_dir),
         overwrite_output_dir=True,
@@ -266,7 +292,8 @@ def main() -> None:
         learning_rate=args.learning_rate,
         warmup_steps=args.warmup_steps,
         lr_scheduler_type=args.lr_scheduler_type,
-        fp16=True,
+        fp16=fp16,
+        bf16=bf16,
         logging_steps=10,
         save_strategy="no",
         gradient_checkpointing=True,
@@ -281,8 +308,21 @@ def main() -> None:
 
     trainer.train()
 
-    # Merge adapters into the base model and save
-    model.save_pretrained(str(args.output_dir))
+    # Merge adapters into the base model (for LoRA/DoRA) before saving
+    if hasattr(model, "merge_and_unload"):
+        merged = model.merge_and_unload()
+    else:
+        merged = model
+
+    # For QLoRA, move back to CPU in float16 to ensure compatibility with export scripts
+    if args.qlora:
+        merged = merged.to(torch.float16)
+
+    if hasattr(merged, "to"):
+        merged = merged.to("cpu")
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    merged.save_pretrained(str(args.output_dir))
     tokenizer.save_pretrained(str(args.output_dir))
 
 
