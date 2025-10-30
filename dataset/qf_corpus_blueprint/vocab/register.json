@@ -1,0 +1,9 @@
+[
+  {"label": "Formal", "description": "Institutional, scripted discourse (government, legal, corporate)."},
+  {"label": "Casual", "description": "Everyday informal conversation between peers."},
+  {"label": "Spontaneous_Speech", "description": "Unscripted interviews, vox pops, or street recordings."},
+  {"label": "Literary", "description": "Narrative or poetic texts published in print/digital form."},
+  {"label": "Broadcast", "description": "Radio/television discourse with limited editing."},
+  {"label": "Academic", "description": "Lectures, seminars, or conferences with specialized vocabulary."},
+  {"label": "Joual", "description": "Highly colloquial speech with dense QF markers."}
+]

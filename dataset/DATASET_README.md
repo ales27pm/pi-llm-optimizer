@@ -51,3 +51,20 @@ questions, clarify goals, and employ the everyday slang that makes
 Québec French distinctive.  Feel free to expand the dataset with
 many more examples tailored to your domain to achieve robust
 performance.
+## Québec French corpus blueprint
+
+A reusable scaffold for building dialect-aware Québec French corpora is
+available under `dataset/qf_corpus_blueprint/`. It ships with:
+
+- A JSON Schema that defines the canonical record structure.
+- Controlled vocabularies for dialect tags, register labels, and
+  diachronic buckets.
+- Python utilities for validation, normalization/enrichment, and balance
+  reporting.
+- Compliance documentation (PIA checklist + licensing guidance) and
+  sample data.
+
+Use the blueprint to prepare high-quality JSONL datasets before running
+`desktop_distill/teacher_label.py` or `train_student.py`. See
+`dataset/qf_corpus_blueprint/README_BLUEPRINT.md` for detailed
+instructions.
