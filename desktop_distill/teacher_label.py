@@ -36,10 +36,19 @@ necessary.
 
 import argparse
 import json
+import logging
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - torch is an optional dependency for CPU-only labelling
+    torch = None  # type: ignore
 
 from tqdm.auto import tqdm  # type: ignore
+
+
+logger = logging.getLogger(__name__)
 
 try:
     from transformers import (
@@ -73,47 +82,7 @@ def build_prompt(record: Dict[str, object]) -> str:
     return prompt
 
 
-def generate_responses(
-    model_name: str,
-    records: Iterable[Dict[str, object]],
-    max_new_tokens: int = 256,
-    do_sample: bool = False,
-    temperature: float = 0.7,
-    device_map: Optional[str] = None,
-) -> Iterable[str]:
-    """Yield generated responses from the teacher model for each record.
-
-    This function initialises the HF model and tokenizer once and uses a
-    text‑generation pipeline for convenience.  Generation parameters can be
-    adjusted via the function arguments.
-    """
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device_map)
-    # Prevent the pipeline from inserting BOS tokens multiple times
-    if tokenizer.bos_token_id is not None:
-        model.config.bos_token_id = tokenizer.bos_token_id
-    generator = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        device=0 if device_map else -1,
-    )
-    for rec in records:
-        prompt = build_prompt(rec)
-        # The pipeline returns a list of dicts with the key 'generated_text'.
-        # We slice off the prompt to yield only the newly generated portion.
-        result = generator(
-            prompt,
-            max_new_tokens=max_new_tokens,
-            do_sample=do_sample,
-            temperature=temperature,
-            eos_token_id=tokenizer.eos_token_id,
-        )[0]["generated_text"]
-        response = result[len(prompt) :].strip()
-        yield response
-
-
-def main() -> None:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Label a dataset with a teacher model")
     parser.add_argument("--model", type=str, required=True, help="HF model identifier of the teacher")
     parser.add_argument("--input", type=Path, required=True, help="Path to input JSONL dataset")
@@ -122,30 +91,178 @@ def main() -> None:
     parser.add_argument("--do_sample", action="store_true", help="Enable sampling for generation")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     parser.add_argument("--device_map", type=str, default=None, help="Device map for model loading")
-    args = parser.parse_args()
+    parser.add_argument("--batch_size", type=int, default=1, help="Number of prompts to generate per batch")
+    parser.add_argument(
+        "--skip_existing",
+        action="store_true",
+        help="Skip records that already contain an 'assistant' field",
+    )
+    return parser.parse_args()
 
-    records = []
-    with args.input.open("r", encoding="utf-8") as f_in:
-        for line in f_in:
-            line = line.strip()
+
+def _load_and_partition_records(
+    input_path: Path, skip_existing: bool
+) -> Tuple[List[Dict[str, object]], List[Dict[str, object]], List[str]]:
+    records: List[Dict[str, object]] = []
+    to_label: List[Dict[str, object]] = []
+    skipped: List[str] = []
+    with input_path.open("r", encoding="utf-8") as f_in:
+        for line_number, raw_line in enumerate(f_in, 1):
+            line = raw_line.strip()
             if not line:
                 continue
-            records.append(json.loads(line))
+            record = json.loads(line)
+            records.append(record)
+            if skip_existing and record.get("assistant"):
+                skipped.append(_record_identifier(record, line_number))
+                continue
+            to_label.append(record)
+    return records, to_label, skipped
 
-    responses = generate_responses(
-        model_name=args.model,
-        records=records,
-        max_new_tokens=args.max_new_tokens,
-        do_sample=args.do_sample,
-        temperature=args.temperature,
-        device_map=args.device_map,
+
+def _record_identifier(record: Dict[str, object], line_number: int) -> str:
+    identifier = record.get("id")
+    if identifier is None:
+        return f"line {line_number}"
+    return str(identifier)
+
+
+def _log_skipped_records(skipped: Sequence[str]) -> None:
+    preview_count = 10
+    details = ", ".join(skipped[:preview_count])
+    suffix = "" if len(skipped) <= preview_count else f", … (+{len(skipped) - preview_count} more)"
+    logger.warning(
+        "Skipping %d record(s) that already contain an 'assistant' response: %s%s",
+        len(skipped),
+        details,
+        suffix,
     )
 
-    # Write augmented records to output
-    with args.output.open("w", encoding="utf-8") as f_out:
-        for rec, resp in tqdm(zip(records, responses), total=len(records), desc="Labelling"):
-            rec["assistant"] = resp
-            f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+def _assign_responses(records: Sequence[Dict[str, object]], responses: Sequence[str]) -> None:
+    if len(records) != len(responses):
+        raise RuntimeError(
+            f"Expected {len(records)} responses but received {len(responses)}."
+        )
+    for record, response in zip(records, responses):
+        record["assistant"] = response
+
+
+def _write_records(records: Sequence[Dict[str, object]], output_path: Path) -> None:
+    with output_path.open("w", encoding="utf-8") as f_out:
+        for record in records:
+            f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _extract_generated_text(candidate: Dict[str, Any], tokenizer: Any) -> str:
+    text = candidate.get("generated_text")
+    if text is not None:
+        return str(text).strip()
+    token_ids = candidate.get("generated_token_ids")
+    if token_ids is None:
+        raise RuntimeError(
+            "Unexpected pipeline output without generated_text or generated_token_ids."
+        )
+    decoded = tokenizer.decode(token_ids, skip_special_tokens=True)
+    return decoded.strip()
+
+
+def generate_responses(
+    model_name: str,
+    records: Sequence[Dict[str, object]],
+    max_new_tokens: int = 256,
+    do_sample: bool = False,
+    temperature: float = 0.7,
+    device_map: Optional[str] = None,
+    batch_size: int = 1,
+) -> Iterator[str]:
+    """Yield generated responses from the teacher model for each record.
+
+    This function initialises the HF model and tokenizer once and uses a
+    text-generation pipeline for convenience.  Generation parameters can be
+    adjusted via the function arguments.  The implementation handles batch
+    generation to keep GPU utilisation high and avoids forcing an invalid
+    ``device`` argument when Accelerate is already managing placement via
+    ``device_map``.
+    """
+
+    prompts = [build_prompt(rec) for rec in records]
+    if not prompts:
+        return
+
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    model_kwargs = {"device_map": device_map} if device_map else {}
+    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    # Prevent the pipeline from inserting BOS tokens multiple times
+    if tokenizer.bos_token_id is not None:
+        model.config.bos_token_id = tokenizer.bos_token_id
+
+    pipeline_kwargs = {
+        "task": "text-generation",
+        "model": model,
+        "tokenizer": tokenizer,
+    }
+    if not device_map and torch is not None and torch.cuda.is_available():
+        pipeline_kwargs["device"] = 0
+
+    generator = pipeline(**pipeline_kwargs)
+    generation_kwargs = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "temperature": temperature,
+        "eos_token_id": tokenizer.eos_token_id,
+        "return_full_text": False,
+    }
+
+    results = generator(prompts, batch_size=batch_size, **generation_kwargs)
+    for group in results:
+        if not isinstance(group, list) or not group:
+            raise RuntimeError("Teacher pipeline returned no completions for a prompt.")
+        yield _extract_generated_text(group[0], tokenizer)
+
+
+def main() -> None:
+    args = _parse_args()
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    else:
+        root_logger.setLevel(logging.INFO)
+
+    records, to_label, skipped = _load_and_partition_records(args.input, args.skip_existing)
+    if skipped:
+        _log_skipped_records(skipped)
+
+    if to_label:
+        responses = list(
+            tqdm(
+                generate_responses(
+                    model_name=args.model,
+                    records=to_label,
+                    max_new_tokens=args.max_new_tokens,
+                    do_sample=args.do_sample,
+                    temperature=args.temperature,
+                    device_map=args.device_map,
+                    batch_size=args.batch_size,
+                ),
+                total=len(to_label),
+                desc="Labelling",
+            )
+        )
+        if len(responses) != len(to_label):
+            raise RuntimeError(
+                f"Teacher model returned {len(responses)} responses but {len(to_label)} were expected."
+            )
+        _assign_responses(to_label, responses)
+    else:
+        logger.info("No records require labelling; writing dataset without modifications.")
+
+    _write_records(records, args.output)
 
 
 if __name__ == "__main__":
