@@ -29,7 +29,7 @@ def validate_records(schema_path: Path, data_path: Path, fail_fast: bool) -> int
 
     error_count = 0
     for line_number, record in iter_jsonl(data_path):
-        if errors := sorted(validator.iter_errors(record), key=lambda e: e.path):
+        if errors := sorted(validator.iter_errors(record), key=lambda e: list(e.path)):
             error_count += len(errors)
             for err in errors:
                 location = " / ".join(map(str, err.absolute_path)) or "<root>"
@@ -55,7 +55,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         action="store_true",
         help="Stop at the first validation error instead of reporting all issues.",
     )
-    return parser.parse_args(argv)
+    return parser.parse_args(list(argv))
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -75,8 +75,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     except json.JSONDecodeError:
         LOGGER.error("Stopped due to JSON parsing error.")
         return 3
-    except Exception as exc:  # pragma: no cover - safeguard unexpected
-        LOGGER.exception("Unexpected validation failure: %s", exc)
+    except Exception:  # pragma: no cover - safeguard unexpected
+        LOGGER.exception("Unexpected validation failure")
         return 4
 
     if error_count:

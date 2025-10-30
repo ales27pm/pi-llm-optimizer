@@ -15,11 +15,6 @@
     "flags": ["IGNORECASE"]
   },
   {
-    "pattern": "\\bsti\\b",
-    "replacement": "cela dit",
-    "flags": ["IGNORECASE"]
-  },
-  {
     "pattern": "\\bchu\\b",
     "replacement": "je suis",
     "flags": ["IGNORECASE"]
@@ -35,7 +30,7 @@
     "flags": ["IGNORECASE"]
   },
   {
-    "pattern": "\\b(j'|t')?\\s*es\\b",
+    "pattern": "\\b[jt]'es\\b",
     "replacement": "tu es",
     "flags": ["IGNORECASE"]
   }

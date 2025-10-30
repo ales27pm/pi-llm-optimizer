@@ -15,7 +15,7 @@
     "flags": ["IGNORECASE"]
   },
   {
-    "pattern": "\\bts[ié]|dz[ié]",
+    "pattern": "\\b(ts|dz)[ié]\\b",
     "tags": ["Affrication_Coronal"],
     "flags": ["IGNORECASE"]
   },

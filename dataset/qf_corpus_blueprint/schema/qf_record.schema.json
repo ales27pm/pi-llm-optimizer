@@ -47,7 +47,8 @@
         "Spontaneous_Speech",
         "Literary",
         "Broadcast",
-        "Academic"
+        "Academic",
+        "Joual"
       ]
     },
     "sociolinguistic_parameters": {

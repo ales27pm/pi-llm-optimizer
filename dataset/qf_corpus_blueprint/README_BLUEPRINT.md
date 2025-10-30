@@ -15,7 +15,7 @@ and licensing.
 
 ## Repository layout
 
-```
+```text
 schema/               # JSON Schema for individual QF records
 vocab/                # Controlled vocabularies referenced by the schema
 scripts/              # Validation, normalization, and analytics tools
@@ -25,22 +25,24 @@ docs/                 # Compliance & licensing guidance
 
 ## Quick start
 
+**Note:** Run these commands from the repository root so the relative paths resolve correctly.
+
 1. **Validate a dataset** against the schema:
 
    ```bash
    pip install jsonschema
-   python scripts/validate_jsonl.py \
-     --schema schema/qf_record.schema.json \
-     --data examples/sample.jsonl
+   python dataset/qf_corpus_blueprint/scripts/validate_jsonl.py \
+     --schema dataset/qf_corpus_blueprint/schema/qf_record.schema.json \
+     --data dataset/qf_corpus_blueprint/examples/sample.jsonl
    ```
 
 2. **Normalize & enrich** Québec French data to generate Montreal French
    (MF) equivalents and sociolinguistic defaults:
 
    ```bash
-   python scripts/ingest_normalize.py \
-     --in-file examples/sample.jsonl \
-     --out-file examples/enriched.jsonl \
+   python dataset/qf_corpus_blueprint/scripts/ingest_normalize.py \
+     --in-file dataset/qf_corpus_blueprint/examples/sample.jsonl \
+     --out-file dataset/qf_corpus_blueprint/examples/enriched.jsonl \
      --default-register Casual \
      --default-region Montréal \
      --time-period 2001-2050
@@ -50,7 +52,8 @@ docs/                 # Compliance & licensing guidance
    axes:
 
    ```bash
-   python scripts/balance_report.py --data examples/enriched.jsonl
+   python dataset/qf_corpus_blueprint/scripts/balance_report.py \
+     --data dataset/qf_corpus_blueprint/examples/enriched.jsonl
    ```
 
 ## Extending the blueprint
