@@ -1,0 +1,14 @@
+{
+  "name": "pi-llm-optimizer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tooling scripts and automation for Pi LLM optimization pipeline",
+  "license": "MIT",
+  "scripts": {
+    "lint": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
+    "test": "python -m pytest"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5"
+  }
+}
