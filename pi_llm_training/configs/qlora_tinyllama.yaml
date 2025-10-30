@@ -1,0 +1,50 @@
+student_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+teacher_model: "cognitivecomputations/Dolphin3.0-Llama3.1-8B"
+
+data:
+  train_file: "../train.jsonl"
+  val_file:   "../val.jsonl"
+  labeled_train_file: "../train_labeled.jsonl"
+  labeled_val_file:   "../val_labeled.jsonl"
+  max_seq_len: 2048
+  packing: true
+
+lora:
+  r: 64
+  alpha: 16
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  bias: "none"
+  use_dora: true
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: "bfloat16"
+
+train:
+  output_dir: "../runs/tinyllama_qlora_dora"
+  num_train_epochs: 3
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  logging_steps: 10
+  save_steps: 200
+  eval_steps: 200
+  save_total_limit: 3
+  gradient_checkpointing: true
+  optim: "paged_adamw_8bit"
+  bf16: true
+  fp16: false
+  seed: 42
