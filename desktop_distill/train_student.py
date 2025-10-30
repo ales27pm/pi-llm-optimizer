@@ -281,9 +281,20 @@ def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
     return model
 
 
+def _select_mixed_precision_flags(args: argparse.Namespace) -> Tuple[bool, bool]:
+    """Determine mutually exclusive mixed-precision flags for TrainingArguments."""
+
+    if not torch.cuda.is_available() or args.qlora:
+        return False, False
+
+    if torch.cuda.is_bf16_supported():
+        return False, True
+
+    return True, False
+
+
 def _create_training_arguments(args: argparse.Namespace) -> TrainingArguments:
-    fp16 = torch.cuda.is_available() and not args.qlora
-    bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported() and not args.qlora
+    fp16, bf16 = _select_mixed_precision_flags(args)
 
     return TrainingArguments(
         output_dir=str(args.output_dir),
