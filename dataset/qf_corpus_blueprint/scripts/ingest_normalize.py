@@ -6,14 +6,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import sys
-import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, List, Sequence, Set
 
-from jsonl_utils import JsonlWriter, iter_jsonl
+try:  # pragma: no cover - import path differs between CLI and package usage
+    from .jsonl_utils import JsonlWriter, iter_jsonl
+    from .normalizer import NormalizationEngine, NeuralLemmatizer, normalize_text_qf
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from jsonl_utils import JsonlWriter, iter_jsonl
+    from normalizer import NormalizationEngine, NeuralLemmatizer, normalize_text_qf
 
 LOGGER = logging.getLogger("qf.normalize")
 
@@ -22,6 +25,8 @@ VOCAB_DIR = SCRIPT_DIR.parent / "vocab"
 
 
 def _resolve_regex_flags(flag_names: Sequence[str]) -> int:
+    import re
+
     flag_value = 0
     for name in flag_names:
         try:
@@ -31,27 +36,18 @@ def _resolve_regex_flags(flag_names: Sequence[str]) -> int:
     return flag_value
 
 
-def _load_normalization_rules() -> List[tuple[re.Pattern[str], str]]:
-    rules_path = VOCAB_DIR / "normalization_rules.json"
-    raw_rules = json.loads(rules_path.read_text(encoding="utf-8"))
-    compiled: List[tuple[re.Pattern[str], str]] = []
-    for entry in raw_rules:
-        pattern = re.compile(entry["pattern"], _resolve_regex_flags(entry.get("flags", [])))
-        compiled.append((pattern, entry["replacement"]))
-    return compiled
+def _load_dialect_rules() -> List[tuple]:
+    import re
 
-
-def _load_dialect_rules() -> List[tuple[re.Pattern[str], List[str]]]:
     rules_path = VOCAB_DIR / "dialect_rules.json"
     raw_rules = json.loads(rules_path.read_text(encoding="utf-8"))
-    compiled: List[tuple[re.Pattern[str], List[str]]] = []
+    compiled: List[tuple] = []
     for entry in raw_rules:
         pattern = re.compile(entry["pattern"], _resolve_regex_flags(entry.get("flags", [])))
         compiled.append((pattern, entry["tags"]))
     return compiled
 
 
-NORMALIZATION_RULES = _load_normalization_rules()
 DIALECT_RULES = _load_dialect_rules()
 JOUAL_TRIGGER_TAGS = {
     "Contraction_QF",
@@ -59,21 +55,6 @@ JOUAL_TRIGGER_TAGS = {
     "Lexeme_Tabarnak",
     "Asteur_Form",
 }
-
-INVISIBLE_CHARACTERS = {
-    "\u200b",  # zero-width space
-    "\u200c",  # zero-width non-joiner
-    "\u200d",  # zero-width joiner
-    "\ufeff",  # zero-width no-break space (BOM)
-}
-
-SEPARATOR_CHARACTERS = {
-    "\u00a0",  # non-breaking space
-    "\u2028",  # line separator
-    "\u2029",  # paragraph separator
-}
-
-CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
@@ -97,20 +78,31 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument(
         "--append", action="store_true", help="Append to the output file instead of overwriting."
     )
+    parser.add_argument(
+        "--lemmatizer-backend",
+        type=str,
+        default="auto",
+        help="Neural lemmatizer backend: auto, spacy, stanza or none.",
+    )
+    parser.add_argument(
+        "--lemmatizer-model",
+        type=str,
+        help="Optional model identifier for the neural lemmatizer backend.",
+    )
     return parser.parse_args(list(argv))
 
 
-def normalize_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFC", text)
-    for separator in SEPARATOR_CHARACTERS:
-        normalized = normalized.replace(separator, " ")
-    for invisible in INVISIBLE_CHARACTERS:
-        normalized = normalized.replace(invisible, "")
-    normalized = CONTROL_CHAR_PATTERN.sub("", normalized)
-    for pattern, replacement in NORMALIZATION_RULES:
-        normalized = pattern.sub(replacement, normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    return normalized
+def _initialise_lemmatizer(args: argparse.Namespace) -> NeuralLemmatizer:
+    backend = (args.lemmatizer_backend or "auto").lower()
+    if backend == "auto":
+        for candidate in ("spacy", "stanza"):
+            lemmatizer = NeuralLemmatizer(candidate, args.lemmatizer_model)
+            if lemmatizer.is_available():
+                LOGGER.info("Using %s backend for neural lemmatization", candidate)
+                return lemmatizer
+        LOGGER.info("Falling back to rule-only normalization (no neural lemmatizer available)")
+        return NeuralLemmatizer("none")
+    return NeuralLemmatizer(backend, args.lemmatizer_model)
 
 
 def detect_dialect_tags(text: str) -> Set[str]:
@@ -123,18 +115,23 @@ def detect_dialect_tags(text: str) -> Set[str]:
     return tags
 
 
-def enrich_record(record: dict, defaults: argparse.Namespace) -> dict:
+def enrich_record(record: dict, defaults: argparse.Namespace, *, engine: NormalizationEngine, lemmatizer: NeuralLemmatizer) -> dict:
     record = dict(record)  # copy to avoid mutating caller state
     raw_text = record.get("text_orthographic_raw", "")
     if not raw_text:
         raise ValueError("Each record must include 'text_orthographic_raw'.")
 
-    normalized = record.get("text_normalized_mf") or normalize_text(raw_text)
-    record["text_normalized_mf"] = normalized
+    normalized_payload = normalize_text_qf(raw_text, engine=engine, lemmatizer=lemmatizer)
+    record["text_normalized_mf"] = normalized_payload["output"]
+    record["normalization_audit"] = normalized_payload["applied_rules"]
 
     tags: Set[str] = set(record.get("dialect_tag_list", []))
+    tags.update(normalized_payload.get("rule_tags", []))
     tags.update(detect_dialect_tags(raw_text))
     record["dialect_tag_list"] = sorted(tags)
+
+    if normalized_payload.get("lemmatizer", {}).get("lemmas"):
+        record["lemmatization"] = normalized_payload["lemmatizer"]
 
     sociolinguistic = dict(record.get("sociolinguistic_parameters", {}))
     sociolinguistic.setdefault("region_qc", defaults.default_region)
@@ -168,6 +165,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     stats = Counter()
     written_records = 0
 
+    lemmatizer = _initialise_lemmatizer(args)
+    engine = NormalizationEngine.from_yaml()
+
     try:
         writer = JsonlWriter(args.out_file, append=args.append, deduplicate=args.append)
     except OSError as exc:  # pragma: no cover - early filesystem error
@@ -178,7 +178,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         try:
             for line_number, record in iter_jsonl(args.in_file):
                 try:
-                    enriched_record = enrich_record(record, args)
+                    enriched_record = enrich_record(record, args, engine=engine, lemmatizer=lemmatizer)
                 except ValueError as exc:
                     LOGGER.error(
                         "Skipping record at line %s missing critical data: %s", line_number, exc
@@ -200,5 +200,5 @@ def main(argv: Iterable[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

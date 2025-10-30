@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Québécois French Corpus Dataset Card",
+  "description": "Validates split-level metadata for the Québecois French corpus blueprint.",
+  "type": "object",
+  "required": [
+    "split_name",
+    "record_count",
+    "register_distribution",
+    "source_ids",
+    "schema_version",
+    "license",
+    "sha256",
+    "creation_date"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "split_name": {
+      "type": "string",
+      "pattern": "^(train|validation|test|dev|production|analysis)$"
+    },
+    "record_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "register_distribution": {
+      "type": "object",
+      "description": "Probability distribution for registers present in the split.",
+      "minProperties": 2,
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 0.6
+      }
+    },
+    "dialect_distribution": {
+      "type": "object",
+      "description": "Optional distribution across dialect tags. Values are constrained to discourage skew.",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 0.6
+      }
+    },
+    "source_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "notes": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "creation_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "register_balance_check": {
+      "type": "object",
+      "description": "Optional audit data verifying register balance thresholds.",
+      "properties": {
+        "max_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.6
+        },
+        "min_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "std_dev": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Detailed provenance and reproducibility metadata.",
+      "properties": {
+        "aggregated_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "processing_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
