@@ -30,6 +30,11 @@
     "flags": ["IGNORECASE"]
   },
   {
+    "pattern": "\\b(moé|toé)\\b",
+    "tags": ["Pronoun_Moe_Toe"],
+    "flags": ["IGNORECASE"]
+  },
+  {
     "pattern": "\\basteur\\b",
     "tags": ["Asteur_Form"],
     "flags": ["IGNORECASE"]
@@ -37,6 +42,16 @@
   {
     "pattern": "\\b[àa]\\s+matin\\b",
     "tags": ["A_Matin_Form"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\bben\\b",
+    "tags": ["Interjection_Ben", "Register_Joual"],
+    "flags": ["IGNORECASE"]
+  },
+  {
+    "pattern": "\\b(faque|fait\\s+que)\\b",
+    "tags": ["Connector_Faque"],
     "flags": ["IGNORECASE"]
   }
 ]
