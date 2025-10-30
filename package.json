@@ -5,7 +5,7 @@
   "description": "Tooling scripts and automation for Pi LLM optimization pipeline",
   "license": "MIT",
   "scripts": {
-    "lint": "prettier --check .",
+    "lint": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
     "test": "python -m pytest"
   },
   "devDependencies": {

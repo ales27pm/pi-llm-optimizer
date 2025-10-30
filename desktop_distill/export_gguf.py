@@ -120,15 +120,23 @@ def _resolve_model_path(model: str, *, revision: Optional[str], token: Optional[
 def _determine_converter_dir(provided: Optional[Path]) -> Path:
     if provided is not None:
         return provided
-    env_dir = os.getenv(LLAMA_CPP_ENV_VAR)
-    if env_dir:
+    if env_dir := os.getenv(LLAMA_CPP_ENV_VAR):
         return Path(env_dir)
     return DEFAULT_LLAMA_CPP_DIR
 
 
-def _determine_output_filename(model_path: Path, qtype: str) -> str:
-    stem = model_path.name or "model"
-    safe_stem = stem.replace(" ", "_")
+def _determine_output_filename(model_identifier: str, model_path: Path, qtype: str) -> str:
+    if Path(model_identifier).exists():
+        stem = model_path.name or "model"
+    else:
+        stem = model_path.name
+        if not stem or stem == "model":
+            identifier = model_identifier.strip().strip("/")
+            if identifier:
+                stem = identifier.replace("/", "_")
+            else:
+                stem = "model"
+    safe_stem = stem.replace(" ", "_").replace("/", "_")
     return f"{safe_stem}-{qtype}.gguf"
 
 
@@ -139,7 +147,7 @@ def _iter_tokenizer_assets(model_path: Path) -> Iterable[Path]:
             yield candidate
     for dirname in TOKENIZER_DIRECTORIES:
         directory = model_path / dirname
-        if directory.exists() and directory.is_dir():
+        if directory.is_dir():
             yield directory
 
 
@@ -161,6 +169,7 @@ def export_gguf(
     *,
     revision: Optional[str] = None,
     hf_token: Optional[str] = None,
+    preserve_tmp_dir: bool = False,
 ) -> None:
     """
     Convert a HuggingFace model to GGUF and quantize it.
@@ -171,6 +180,7 @@ def export_gguf(
     :param converter_dir: Optional directory containing llama.cpp and its tools.
     :param revision: Optional revision/branch/tag for HuggingFace models.
     :param hf_token: Optional HuggingFace token for private repositories.
+    :param preserve_tmp_dir: Preserve the temporary working directory on failure for debugging.
     """
 
     resolved_converter_dir = _determine_converter_dir(converter_dir)
@@ -184,32 +194,50 @@ def export_gguf(
     outdir.mkdir(parents=True, exist_ok=True)
     hf_token = hf_token or os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
-    with _resolve_model_path(model, revision=revision, token=hf_token) as model_path, tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        f16_path = tmp_path / "model-f16.gguf"
-        cmd_convert: list[object] = [
-            "python",
-            str(convert_script),
-            "--outtype",
-            "f16",
-            "--outfile",
-            str(f16_path),
-            str(model_path),
-        ]
-        run_cmd(cmd_convert)
+    tmp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
+    if preserve_tmp_dir:
+        tmp_path = Path(tempfile.mkdtemp(prefix="export_gguf_"))
+    else:
+        tmp_dir_ctx = tempfile.TemporaryDirectory()
+        tmp_path = Path(tmp_dir_ctx.name)
 
-        q_filename = _determine_output_filename(model_path, qtype)
-        q_path = outdir / q_filename
-        cmd_quant: list[object] = [
-            str(quant_bin),
-            str(f16_path),
-            str(q_path),
-            qtype,
-        ]
-        run_cmd(cmd_quant)
+    try:
+        with _resolve_model_path(model, revision=revision, token=hf_token) as model_path:
+            f16_path = tmp_path / "model-f16.gguf"
+            cmd_convert: list[object] = [
+                "python",
+                str(convert_script),
+                "--outtype",
+                "f16",
+                "--outfile",
+                str(f16_path),
+                str(model_path),
+            ]
+            run_cmd(cmd_convert)
 
-        _copy_tokenizer_assets(model_path, outdir)
-        logger.info("Quantized model available at %s", q_path)
+            q_filename = _determine_output_filename(model, model_path, qtype)
+            q_path = outdir / q_filename
+            cmd_quant: list[object] = [
+                str(quant_bin),
+                str(f16_path),
+                str(q_path),
+                qtype,
+            ]
+            run_cmd(cmd_quant)
+
+            _copy_tokenizer_assets(model_path, outdir)
+            logger.info("Quantized model available at %s", q_path)
+    except Exception:
+        if preserve_tmp_dir:
+            logger.warning("Error occurred; temporary directory preserved at: %s", tmp_path)
+        else:
+            if tmp_dir_ctx is not None:
+                tmp_dir_ctx.cleanup()
+                tmp_dir_ctx = None
+        raise
+    else:
+        if not preserve_tmp_dir and tmp_dir_ctx is not None:
+            tmp_dir_ctx.cleanup()
 
 
 def main() -> None:
@@ -226,9 +254,20 @@ def main() -> None:
         default="INFO",
         help="Logging level (e.g. DEBUG, INFO, WARNING)",
     )
+    parser.add_argument(
+        "--preserve-tmp-dir",
+        action="store_true",
+        help="Preserve the temporary working directory on failure for debugging",
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    requested_level = args.log_level.upper()
+    resolved_level = logging.getLevelName(requested_level)
+    if isinstance(resolved_level, int):
+        logging.basicConfig(level=resolved_level)
+    else:
+        logging.basicConfig(level=logging.INFO)
+        logger.warning("Invalid log level '%s'; defaulting to INFO", args.log_level)
 
     export_gguf(
         args.model,
@@ -237,6 +276,7 @@ def main() -> None:
         args.converter_dir,
         revision=args.revision,
         hf_token=args.hf_token,
+        preserve_tmp_dir=args.preserve_tmp_dir,
     )
     print(f"Exported GGUF to {args.outdir} (quant={args.qtype})")
 
