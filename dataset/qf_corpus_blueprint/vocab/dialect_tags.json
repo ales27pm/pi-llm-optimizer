@@ -8,5 +8,8 @@
   {"tag": "Register_Joual", "description": "Markedly colloquial, joual register."},
   {"tag": "Elision_Determiner", "description": "Determiner vowel deletion (e.g., \"d'la\", \"t'sais\")."},
   {"tag": "Phonological_Tu_S", "description": "Features \"tu\" used as a question particle."},
-  {"tag": "Lexeme_Tabarnak", "description": "Contains a sacre lexeme (e.g., tabarnak, câlice)."}
+  {"tag": "Lexeme_Tabarnak", "description": "Contains a sacre lexeme (e.g., tabarnak, câlice)."},
+  {"tag": "Pronoun_Moe_Toe", "description": "Contains colloquial stressed pronoun variants (e.g., \"moé\", \"toé\")."},
+  {"tag": "Interjection_Ben", "description": "Uses the discourse marker \"ben\" as a filler or emphasis."},
+  {"tag": "Connector_Faque", "description": "Includes the causal connector \"faque\" or the phrase \"fait que\"."}
 ]
