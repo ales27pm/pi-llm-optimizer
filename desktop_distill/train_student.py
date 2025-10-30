@@ -84,11 +84,12 @@ def load_dataset_from_jsonl(path: Path) -> Dataset:
 def preprocess_function(examples: Dict[str, List[Any]], tokenizer, max_length: int) -> Dict[str, Any]:
     """Tokenize and concatenate the system/user/assistant for causal LM training."""
     input_texts = []
-    for sys_hint, user, assistant in zip(
-        examples.get("system_hint", [""] * len(examples["assistant"])),
-        examples.get("user", [""] * len(examples["assistant"])),
-        examples["assistant"], strict=False,
-    ):
+    assistants = examples["assistant"]
+    system_hints = examples.get("system_hint", [""] * len(assistants))
+    users = examples.get("user", [""] * len(assistants))
+    if not (len(system_hints) == len(users) == len(assistants)):
+        raise ValueError("Dataset fields must have matching lengths")
+    for sys_hint, user, assistant in zip(system_hints, users, assistants):
         parts = []
         if sys_hint:
             parts.append(str(sys_hint).strip())

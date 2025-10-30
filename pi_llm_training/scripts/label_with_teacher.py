@@ -119,7 +119,13 @@ def main() -> None:
                 )
 
             decoded = tokenizer.batch_decode(generated, skip_special_tokens=True)
-            for prompt, full_text, meta in zip(prompts, decoded, metadata, strict=False):
+            if not (
+                len(decoded) == len(metadata) == len(prompts)
+            ):
+                raise RuntimeError(
+                    "Mismatch between generated outputs and original prompts"
+                )
+            for prompt, full_text, meta in zip(prompts, decoded, metadata):
                 assistant = full_text[len(prompt) :]
                 if not full_text.startswith(prompt):
                     assistant = full_text

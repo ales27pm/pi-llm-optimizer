@@ -148,7 +148,7 @@ def _assign_responses(records: Sequence[Dict[str, object]], responses: Sequence[
         raise RuntimeError(
             f"Expected {len(records)} responses but received {len(responses)}."
         )
-    for record, response in zip(records, responses, strict=False):
+    for record, response in zip(records, responses):
         record["assistant"] = response
 
 
