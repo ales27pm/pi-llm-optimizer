@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = [
+    "node_modules",
+    "dataset",
+    "desktop_distill/__pycache__",
+    "pi_llm_training/__pycache__",
+    "tests/__pycache__",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+

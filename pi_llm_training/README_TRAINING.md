@@ -3,6 +3,7 @@
 This folder contains everything you need to label your dataset with a **Dolphin** teacher and train a **TinyLlama** student using **QLoRA + DoRA**, then export to GGUF for your Raspberry Pi 4.
 
 ## 0) Create a virtual environment and install dependencies
+
 ```bash
 cd pi_llm_training
 python3 -m venv .venv
@@ -12,6 +13,7 @@ pip install -r requirements.txt
 ```
 
 ## 1) Label the dataset with the teacher
+
 ```bash
 cd scripts
 python label_with_teacher.py --in-file ../train.jsonl --out-file ../train_labeled.jsonl \
@@ -24,17 +26,20 @@ python label_with_teacher.py --in-file ../val.jsonl --out-file ../val_labeled.js
 ```
 
 ## 2) (Optional) Flatten to plain text prompts
+
 ```bash
 python prepare_dataset.py --in-file ../train_labeled.jsonl --out-file ../train_text.jsonl --drop-unlabeled
 python prepare_dataset.py --in-file ../val_labeled.jsonl   --out-file ../val_text.jsonl   --drop-unlabeled
 ```
 
 ## 3) Train using QLoRA + DoRA
+
 ```bash
 python train_qlora.py --config ../configs/qlora_tinyllama.yaml
 ```
 
 ## 4) Merge adapters and export to GGUF
+
 ```bash
 # Merge LoRA weights
 python - <<'PYCODE'
@@ -58,6 +63,7 @@ PYCODE
 ```
 
 ## Notes
+
 - The teacher can run in 4-bit NF4 mode to fit on an 8 GB GPU (or CPU fallback).
 - The TinyLlama student (1.1B params) keeps inference light enough for embedded devices.
 - LoRA/DoRA parameters are tuned for efficiency (`r=64`, `alpha=16`).

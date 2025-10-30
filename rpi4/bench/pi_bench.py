@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Tuple
 
-from benchmark_csv import BenchmarkRow, BenchmarkCSVWriter
+from benchmark_csv import BenchmarkCSVWriter, BenchmarkRow
 from throughput_regressor import validate
 
 LLAMA_BIN = Path.home() / "llama.cpp/build/bin/llama-cli"
@@ -49,7 +49,6 @@ def bench(model_path: str, prompt: str, ctx: int, batch: int, threads: int, kv_t
         "-n", str(warmup + decode_tokens),
     ])
     t3 = time.perf_counter()
-    total_ms = (t3 - t2) * 1e3
     tokps = (warmup + decode_tokens) / ((t3 - t2))
 
     # Measure embedding time
@@ -66,16 +65,43 @@ def bench(model_path: str, prompt: str, ctx: int, batch: int, threads: int, kv_t
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark llama.cpp model on a Raspberry Pi")
+    parser = argparse.ArgumentParser(
+        description="Benchmark llama.cpp model on a Raspberry Pi"
+    )
     parser.add_argument("--model", type=str, required=True, help="Path to the GGUF model")
-    parser.add_argument("--prompt", type=str, default="Test.", help="Prompt to use for benchmarking")
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="Test.",
+        help="Prompt to use for benchmarking",
+    )
     parser.add_argument("--ctx", type=int, default=1024, help="Context length")
     parser.add_argument("--batch", type=int, default=64, help="Batch size")
     parser.add_argument("--threads", type=int, default=4, help="Number of threads")
-    parser.add_argument("--kv-type", type=str, default="q8_0", help="KV cache quantisation type")
-    parser.add_argument("--iterations", type=int, default=3, help="Number of benchmark iterations")
-    parser.add_argument("--min-tokps", type=float, default=0.25, help="Minimum acceptable tokens/s")
-    parser.add_argument("--csv", type=Path, default=Path("rpi4/bench/out/bench.csv"), help="Path to write CSV report")
+    parser.add_argument(
+        "--kv-type",
+        type=str,
+        default="q8_0",
+        help="KV cache quantisation type",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=3,
+        help="Number of benchmark iterations",
+    )
+    parser.add_argument(
+        "--min-tokps",
+        type=float,
+        default=0.25,
+        help="Minimum acceptable tokens/s",
+    )
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        default=Path("rpi4/bench/out/bench.csv"),
+        help="Path to write CSV report",
+    )
     args = parser.parse_args()
 
     rows = []
@@ -102,7 +128,13 @@ def main() -> None:
     summary = validate(rates, args.min_tokps)
     # Write CSV
     BenchmarkCSVWriter().write(rows, args.csv)
-    print({"min_tokps": summary.minimum_observed, "avg_tokps": summary.average_tokens_per_second, "csv": str(args.csv)})
+    print(
+        {
+            "min_tokps": summary.minimum_observed,
+            "avg_tokps": summary.average_tokens_per_second,
+            "csv": str(args.csv),
+        }
+    )
 
 
 if __name__ == "__main__":

@@ -3,9 +3,9 @@ teacher_model: "cognitivecomputations/Dolphin3.0-Llama3.1-8B"
 
 data:
   train_file: "../train.jsonl"
-  val_file:   "../val.jsonl"
+  val_file: "../val.jsonl"
   labeled_train_file: "../train_labeled.jsonl"
-  labeled_val_file:   "../val_labeled.jsonl"
+  labeled_val_file: "../val_labeled.jsonl"
   max_seq_len: 2048
   packing: true
 

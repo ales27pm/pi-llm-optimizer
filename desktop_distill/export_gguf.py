@@ -37,7 +37,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
 
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_LLAMA_CPP_DIR = Path.home() / "llama.cpp"
@@ -84,7 +83,8 @@ def _get_snapshot_download():
         hub_module = importlib.import_module("huggingface_hub")
     except ImportError as exc:  # pragma: no cover - exercised in unit tests
         raise ImportError(
-            "huggingface_hub is required to download remote models. Install it with `pip install huggingface_hub`."
+            "huggingface_hub is required to download remote models. "
+            "Install it with `pip install huggingface_hub`."
         ) from exc
     snapshot_download = getattr(hub_module, "snapshot_download", None)
     if snapshot_download is None:  # pragma: no cover - defensive guard
@@ -242,12 +242,42 @@ def export_gguf(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export a HF model to GGUF and quantize it")
-    parser.add_argument("--model", type=str, required=True, help="Path or HF model id of the model to export")
-    parser.add_argument("--outdir", type=Path, required=True, help="Output directory for the GGUF artifact")
-    parser.add_argument("--qtype", type=str, default="q4_k_m", help="Quantization type (default: q4_k_m)")
-    parser.add_argument("--converter-dir", type=Path, default=None, help="Directory containing llama.cpp")
-    parser.add_argument("--revision", type=str, default=None, help="Optional HuggingFace revision (branch/tag/commit)")
-    parser.add_argument("--hf-token", type=str, default=None, help="HuggingFace token for private repositories")
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Path or HF model id of the model to export",
+    )
+    parser.add_argument(
+        "--outdir",
+        type=Path,
+        required=True,
+        help="Output directory for the GGUF artifact",
+    )
+    parser.add_argument(
+        "--qtype",
+        type=str,
+        default="q4_k_m",
+        help="Quantization type (default: q4_k_m)",
+    )
+    parser.add_argument(
+        "--converter-dir",
+        type=Path,
+        default=None,
+        help="Directory containing llama.cpp",
+    )
+    parser.add_argument(
+        "--revision",
+        type=str,
+        default=None,
+        help="Optional HuggingFace revision (branch/tag/commit)",
+    )
+    parser.add_argument(
+        "--hf-token",
+        type=str,
+        default=None,
+        help="HuggingFace token for private repositories",
+    )
     parser.add_argument(
         "--log-level",
         type=str,

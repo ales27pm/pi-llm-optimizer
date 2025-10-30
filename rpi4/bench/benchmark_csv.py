@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
+
 @dataclass(frozen=True)
 class BenchmarkRow:
     timestamp: datetime
@@ -23,7 +24,11 @@ class BenchmarkCSVWriter:
     def render(self, samples: List[BenchmarkRow]) -> str:
         lines = [self.HEADER]
         for s in samples:
-            ts = s.timestamp.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            ts = (
+                s.timestamp.astimezone(timezone.utc)
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            )
             lines.append(",".join([
                 ts,
                 self._fmt(s.tokens_per_second),

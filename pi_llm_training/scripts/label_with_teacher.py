@@ -1,72 +1,31 @@
-# -*- coding: utf-8 -*-
-"""
-Generate assistant labels using a teacher LLM (e.g., Dolphin).
-"""
+"""Label a dataset with a teacher LLM."""
+
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Iterable, Iterator, List
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
 from prompt_templates import extract_fields, llama_inst
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+)
 
 
-def iter_jsonl(path: Path):
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
+def iter_jsonl(path: Path) -> Iterator[Dict]:
+    """Yield JSON objects from a newline-delimited JSON file."""
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
             if line.strip():
                 yield json.loads(line)
 
 
-def batchify(lst: List, batch_size: int):
-    for i in range(0, len(lst), batch_size):
-        yield lst[i : i + batch_size]
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--in-file", required=True)
-    ap.add_argument("--out-file", required=True)
-    ap.add_argument(
-        "--teacher-model",
-        default="cognitivecomputations/Dolphin3.0-Llama3.1-8B",
-    )
-    ap.add_argument("--load-in-4bit", action="store_true")
-    ap.add_argument("--max-new-tokens", type=int, default=256)
-    ap.add_argument("--batch-size", type=int, default=1)
-    ap.add_argument("--temperature", type=float, default=0.7)
-    ap.add_argument("--top_p", type=float, default=0.9)
-    ap.add_argument("--seed", type=int, default=42)
-    args = ap.parse_args()
-
-    torch.manual_seed(args.seed)
-
-    quant = (
-        BitsAndBytesConfig(
-            load_in_4bit=args.load_in_4bit,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-        if args.load_in_4bit
-        else None
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(args.teacher_model, use_fast=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.teacher_model,
-        quantization_config=quant,
-        device_map="auto",
-        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        trust_remote_code=True,
-    )
-    model.eval()
-
-from typing import Dict, Iterable, List
-
-def batchify(items: Iterable[Dict], batch_size: int):
+def generate_batches(items: Iterable[Dict], batch_size: int) -> Iterator[List[Dict]]:
+    """Generate batches with up to ``batch_size`` elements."""
     batch: List[Dict] = []
     for item in items:
         batch.append(item)
@@ -76,20 +35,70 @@ def batchify(items: Iterable[Dict], batch_size: int):
     if batch:
         yield batch
 
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--in-file", required=True, help="Path to the input JSONL file")
+    parser.add_argument("--out-file", required=True, help="Path to write the labelled JSONL")
+    parser.add_argument(
+        "--teacher-model",
+        default="cognitivecomputations/Dolphin3.0-Llama3.1-8B",
+        help="HuggingFace model identifier for the teacher LLM",
+    )
+    parser.add_argument(
+        "--load-in-4bit",
+        action="store_true",
+        help="Load the teacher model with 4-bit quantization",
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument("--seed", type=int, default=42)
+    return parser.parse_args()
+
+
+def build_quant_config(load_in_4bit: bool) -> BitsAndBytesConfig | None:
+    if not load_in_4bit:
+        return None
+    return BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+
+
+def main() -> None:
+    args = parse_args()
+    torch.manual_seed(args.seed)
+
+    quant_config = build_quant_config(args.load_in_4bit)
+    tokenizer = AutoTokenizer.from_pretrained(args.teacher_model, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        args.teacher_model,
+        quantization_config=quant_config,
+        device_map="auto",
+        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        trust_remote_code=True,
+    )
+    model.eval()
+
     src_path = Path(args.in_file)
     out_path = Path(args.out_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     labeled = 0
-    with out_path.open("w", encoding="utf-8") as w:
-        for batch in batchify(iter_jsonl(src_path), args.batch_size):
-            prompts = []
-            metas = []
-            for ex in batch:
-                fld = extract_fields(ex)
-                pack = llama_inst(fld["system"], fld["user"], assistant=None)
-                prompts.append(pack["prompt"])
-                metas.append(ex)
+    with out_path.open("w", encoding="utf-8") as output_handle:
+        for batch in generate_batches(iter_jsonl(src_path), args.batch_size):
+            prompts: List[str] = []
+            metadata: List[Dict] = []
+            for example in batch:
+                fields = extract_fields(example)
+                packed = llama_inst(fields["system"], fields["user"], assistant=None)
+                prompts.append(packed["prompt"])
+                metadata.append(example)
+
             inputs = tokenizer(
                 prompts,
                 return_tensors="pt",
@@ -97,6 +106,7 @@ def batchify(items: Iterable[Dict], batch_size: int):
                 truncation=True,
                 max_length=2048,
             ).to(model.device)
+
             with torch.no_grad():
                 generated = model.generate(
                     **inputs,
@@ -107,14 +117,21 @@ def batchify(items: Iterable[Dict], batch_size: int):
                     eos_token_id=tokenizer.eos_token_id,
                     pad_token_id=tokenizer.eos_token_id,
                 )
+
             decoded = tokenizer.batch_decode(generated, skip_special_tokens=True)
-            for prompt, full_text, meta in zip(prompts, decoded, metas):
+            if not (
+                len(decoded) == len(metadata) == len(prompts)
+            ):
+                raise RuntimeError(
+                    "Mismatch between generated outputs and original prompts"
+                )
+            for prompt, full_text, meta in zip(prompts, decoded, metadata):
                 assistant = full_text[len(prompt) :]
                 if not full_text.startswith(prompt):
                     assistant = full_text
-                meta_out = dict(meta)
-                meta_out["assistant"] = assistant.strip()
-                w.write(json.dumps(meta_out, ensure_ascii=False) + "\n")
+                enriched = dict(meta)
+                enriched["assistant"] = assistant.strip()
+                output_handle.write(json.dumps(enriched, ensure_ascii=False) + "\n")
                 labeled += 1
 
     print(
