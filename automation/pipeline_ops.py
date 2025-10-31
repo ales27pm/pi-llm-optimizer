@@ -37,6 +37,11 @@ except AgentProtocolError as exc:  # pragma: no cover - runtime guard
     sys.stderr.write(f"[pipeline_ops] WARNING: {exc}\n")
     PROTOCOL_METADATA = None
 
+try:
+    from desktop_distill.train_student import QLORA_PRESETS
+except Exception:  # pragma: no cover - optional dependency guard
+    QLORA_PRESETS = {}
+
 
 def _python_executable() -> str:
     """Return the interpreter that should execute pipeline scripts."""
@@ -115,6 +120,7 @@ class TrainStudentConfig:
     learning_rate: float = 2e-5
     use_dora: bool = False
     qlora: bool = False
+    qlora_preset: Optional[str] = None
     seed: Optional[int] = None
     logging_steps: Optional[int] = None
 
@@ -140,7 +146,12 @@ class TrainStudentConfig:
         _extend(command, "--gradient_accumulation_steps", self.gradient_accumulation_steps)
         _extend(command, "--learning_rate", self.learning_rate)
         _extend_flag(command, "--use_dora", self.use_dora)
-        _extend_flag(command, "--qlora", self.qlora)
+        qlora_enabled = self.qlora or self.qlora_preset is not None
+        _extend_flag(command, "--qlora", qlora_enabled)
+        if self.qlora_preset:
+            if QLORA_PRESETS and self.qlora_preset not in QLORA_PRESETS:
+                raise ValueError(f"Unknown QLoRA preset '{self.qlora_preset}'")
+            _extend(command, "--qlora_preset", self.qlora_preset)
         _extend(command, "--seed", self.seed)
         _extend(command, "--logging_steps", self.logging_steps)
         if self.extra_args:
@@ -205,5 +216,6 @@ __all__ = [
     "BenchmarkConfig",
     "env_with_hf_token",
     "PROTOCOL_METADATA",
+    "QLORA_PRESETS",
 ]
 

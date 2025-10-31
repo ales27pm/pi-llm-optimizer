@@ -17,6 +17,7 @@ from textual.widgets import (
     Header,
     Input,
     Label,
+    Select,
     Tab,
     Tabs,
     TextLog,
@@ -28,9 +29,16 @@ from .pipeline_ops import (
     PROTOCOL_METADATA,
     TeacherLabelConfig,
     TrainStudentConfig,
+    QLORA_PRESETS,
 )
 
 APP_CSS_PATH = Path(__file__).with_name("ui_app.tcss")
+
+
+QLORA_PRESET_OPTIONS = [
+    (preset.label, name)
+    for name, preset in sorted(QLORA_PRESETS.items(), key=lambda item: item[0])
+]
 
 
 class PipelineApp(App[None]):
@@ -91,6 +99,31 @@ class PipelineApp(App[None]):
     def _when_tab_selected(self, event: Tabs.TabActivated) -> None:  # pragma: no cover - UI event
         self._switch_panel(event.tab.id)
 
+    @on(Select.Changed, "#train-qlora-preset")
+    def _when_preset_selected(self, event: Select.Changed) -> None:  # pragma: no cover - UI event
+        qlora_checkbox = self.query_one("#train-qlora", Checkbox)
+        qlora_checkbox.value = bool(event.value)
+        log = self.query_one(TextLog)
+        if event.value:
+            preset = QLORA_PRESETS.get(str(event.value))
+            if preset is not None:
+                log.write(
+                    "Selected QLoRA preset '%s' → %s • quant=%s • %s"
+                    % (
+                        str(event.value),
+                        preset.target_gpus,
+                        preset.quant_type,
+                        preset.notes or "see README for recommended hyperparameters",
+                    )
+                )
+            else:
+                log.write(
+                    "[yellow]WARNING:[/] Unknown preset '%s' selected; default hyperparameters will be used."
+                    % str(event.value)
+                )
+        else:
+            log.write("Cleared QLoRA preset selection.")
+
     def _switch_panel(self, panel_id: str) -> None:
         panel_holder = self.query_one("#panel-holder")
         for child in panel_holder.children:
@@ -134,6 +167,18 @@ class PipelineApp(App[None]):
                 Input(placeholder="Gradient accumulation steps (default 1)", id="train-grad-steps"),
                 Input(placeholder="Learning rate (default 2e-5)", id="train-learning-rate"),
                 Checkbox(label="Use DoRA adapters", id="train-use-dora"),
+                Select(
+                    options=QLORA_PRESET_OPTIONS or [("No presets detected", "")],
+                    prompt="QLoRA preset (optional)",
+                    allow_blank=True,
+                    id="train-qlora-preset",
+                    disabled=not QLORA_PRESET_OPTIONS,
+                    tooltip=(
+                        "Automatically configures quantisation and LoRA hyperparameters"
+                        if QLORA_PRESET_OPTIONS
+                        else "Install training dependencies to load preset metadata"
+                    ),
+                ),
                 Checkbox(label="Enable QLoRA", id="train-qlora"),
                 Input(placeholder="Seed (optional)", id="train-seed"),
                 Input(placeholder="Logging steps (optional)", id="train-logging-steps"),
@@ -220,6 +265,9 @@ class PipelineApp(App[None]):
     @on(Button.Pressed, "#run-train")
     async def _run_training(self) -> None:  # pragma: no cover - runtime behaviour
         try:
+            preset_choice = self._optional_select("#train-qlora-preset")
+            qlora_checkbox = self.query_one("#train-qlora", Checkbox)
+            qlora_enabled = qlora_checkbox.value or bool(preset_choice)
             config = TrainStudentConfig(
                 dataset=Path(self._require_value("#train-dataset")),
                 base_model=self._require_value("#train-base-model"),
@@ -229,7 +277,8 @@ class PipelineApp(App[None]):
                 gradient_accumulation_steps=self._optional_int("#train-grad-steps", default=1),
                 learning_rate=self._optional_float("#train-learning-rate", default=2e-5),
                 use_dora=self.query_one("#train-use-dora", Checkbox).value,
-                qlora=self.query_one("#train-qlora", Checkbox).value,
+                qlora=qlora_enabled,
+                qlora_preset=preset_choice,
                 seed=self._optional_int("#train-seed"),
                 logging_steps=self._optional_int("#train-logging-steps"),
             )
@@ -318,6 +367,13 @@ class PipelineApp(App[None]):
     def _optional_path(self, selector: str) -> Optional[Path]:
         value = self._optional_str(selector)
         return Path(value) if value else None
+
+    def _optional_select(self, selector: str) -> Optional[str]:
+        widget = self.query_one(selector, Select)
+        value = widget.value
+        if value is Select.BLANK or value == "":
+            return None
+        return str(value)
 
     def _report_error(self, message: str) -> None:
         log = self.query_one(TextLog)
