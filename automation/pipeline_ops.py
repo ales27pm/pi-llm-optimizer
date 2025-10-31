@@ -26,7 +26,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence
 
+from .agent_protocol import AgentProtocolError, load_agent_protocol_metadata
+
 Command = List[str]
+
+
+try:
+    PROTOCOL_METADATA = load_agent_protocol_metadata()
+except AgentProtocolError as exc:  # pragma: no cover - runtime guard
+    sys.stderr.write(f"[pipeline_ops] WARNING: {exc}\n")
+    PROTOCOL_METADATA = None
 
 
 def _python_executable() -> str:
@@ -195,5 +204,6 @@ __all__ = [
     "ExportConfig",
     "BenchmarkConfig",
     "env_with_hf_token",
+    "PROTOCOL_METADATA",
 ]
 

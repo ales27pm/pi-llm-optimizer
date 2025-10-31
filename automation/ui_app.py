@@ -22,7 +22,13 @@ from textual.widgets import (
     TextLog,
 )
 
-from .pipeline_ops import BenchmarkConfig, ExportConfig, TeacherLabelConfig, TrainStudentConfig
+from .pipeline_ops import (
+    BenchmarkConfig,
+    ExportConfig,
+    PROTOCOL_METADATA,
+    TeacherLabelConfig,
+    TrainStudentConfig,
+)
 
 APP_CSS_PATH = Path(__file__).with_name("ui_app.tcss")
 
@@ -64,6 +70,15 @@ class PipelineApp(App[None]):
 
     def on_mount(self) -> None:  # pragma: no cover - runtime behaviour
         self._switch_panel("label")
+        log_widget = self.query_one(TextLog)
+        if PROTOCOL_METADATA is not None:
+            log_widget.write(
+                f"Loaded agent protocol '{PROTOCOL_METADATA.title}' (version {PROTOCOL_METADATA.version})."
+            )
+        else:
+            log_widget.write(
+                "[yellow]WARNING:[/] Agent protocol metadata could not be loaded. Review AGENTS.md for format changes."
+            )
 
     async def action_switch(self, panel_id: str) -> None:  # pragma: no cover - runtime behaviour
         self._switch_panel(panel_id)

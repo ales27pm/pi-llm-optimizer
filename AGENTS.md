@@ -1,136 +1,48 @@
-# Agent Definitions
+# AGENT_PROTOCOL_V1
+version: 1.0.0
 
-This document describes the main roles and behaviours of the agents
-implemented in this repository.  Agents are modular pieces of code that
-perform specific tasks in the pipeline, such as labelling the dataset,
-training a student model, exporting to GGUF and running the model on
-device.  Understanding these roles makes it easier to extend or
-customise the system.
+## 1. Scope Matrix
+1.1 This file governs the entire repository except where a nested `AGENTS.md` overrides these directives.
+1.2 When a subsystem requires bespoke rules, create a nested `AGENTS.md` alongside the code it governs and keep its instructions synchronized with this root contract.
 
-## 🧠 `teacher_label.py`
+## 2. Delivery Contract
+2.1 Ship complete, production-grade solutions. Partial implementations, placeholders, scaffolds, mocks, TODO markers, or simplified logic are categorically forbidden.
+2.2 Preserve behavioural accuracy: align code, documentation, configuration, and tests with the current repository state in the same change set.
+2.3 Every code path must include robust error handling, telemetry/logging hooks, and deterministic fallbacks where practical.
+2.4 Maintain cross-platform compatibility already supported by the project. If a change is platform-specific, document and guard it explicitly.
 
-`desktop_distill/teacher_label.py` is responsible for **labelling the
-dataset** using a large teacher model.  It reads JSONL rows containing
-user prompts, optional system hints and JSON schemas, constructs the
-full prompt, and queries a HuggingFace `pipeline` to generate a
-response.  The script writes the original record plus a newly populated
-`assistant` field to disk so that student training can begin.
+## 3. Documentation & Roadmap Synchronization
+3.1 Whenever behaviour, interfaces, or processes change, update all impacted documentation immediately (`README.md`, `ROADMAP.md`, dataset cards, runbooks, and any nested guides).
+3.2 Keep this root `AGENTS.md` current. Amend it whenever new constraints, workflows, or tooling emerge.
+3.3 Expand the roadmap into actionable items that reflect shipped and planned work. Remove or revise stale entries.
+3.4 If a documentation source becomes obsolete, either delete it or rewrite it to match reality within the same commit.
 
-Updated capabilities worth noting when extending or reusing this agent:
+## 4. Session Workflow
+4.1 Before proposing or merging code:
+    a. Implement the change completely.
+    b. Update documentation and roadmap artifacts to mirror the new state.
+    c. Run relevant unit/integration tests and linters defined for the touched areas.
+    d. Execute `./automation/update_and_cleanup.sh` to format documentation, sweep caches, and validate synchronization.
+4.2 Record the executed commands and their outcomes in the session summary.
+4.3 Never rely on manual follow-up—each session must leave the repository consistent and releasable.
 
-* Concatenates `system_hint`, `user` and JSON instructions (when
-  `requires_json` is true) using double newlines so the student sees
-  the same structure during training.
-* Supports streaming multiple prompts per forward pass via
-  `--batch_size`.
-* Respects existing answers with the `--skip_existing` guard; skipped
-  rows are logged with identifiers for quick inspection.
-* Allows generation parameters such as `--max_new_tokens`,
-  `--temperature`, `--do_sample`, and `--device_map` to be configured
-  from the CLI or higher-level automation.
+## 5. Quality Gates
+5.1 Honour repository-specific tooling (formatters, lint configurations, test harnesses). Add or update checks if coverage is missing.
+5.2 Reject work that introduces flaky behaviour, nondeterministic ordering, or hidden side effects.
+5.3 For any new capability, include automated tests or clearly state and justify the absence of feasible coverage.
+5.4 Enforce secure defaults and least-privilege configurations. Document security considerations alongside the implementation.
 
-> **Tip:** Maintain separate JSONL files for different speaking styles
-> (e.g. `dataset_quebecois_distill.jsonl` for instructional data and
-> `dataset_quebecois_conversation.jsonl` for dialogues) and label each
-> file independently.  This keeps topic-specific prompts together while
-> allowing incremental labelling runs thanks to `--skip_existing`.
+## 6. Change Control
+6.1 Keep commit histories clean, scoped, and well described. Each commit must be self-contained and pass the quality gates.
+6.2 When refactoring, provide migration notes and ensure backwards compatibility or document breaking changes explicitly.
+6.3 Proactively remove dead code, redundant configuration, and unused assets encountered while working on a task. This mandate
+    applies to all changes submitted after adopting this protocol.
 
-## 🎓 `train_student.py`
+## 7. Automation Maintenance
+7.1 Ensure `automation/update_and_cleanup.sh` remains accurate. Extend it whenever new documentation or cache locations appear.
+7.2 Validate that automation can run non-interactively in CI environments.
+7.3 When adding new automation, document invocation patterns and integrate them into this protocol.
 
-`desktop_distill/train_student.py` fine-tunes a **student model** on
-the labelled dataset.  The script builds LoRA or DoRA adapters,
-optionally enables QLoRA (4-bit) training with `bitsandbytes`, and
-merges the adapters back into the base model on completion.  It
-preprocesses records by concatenating system hints, user prompts and
-assistant replies into a single causal language modelling sequence.
-
-Key implementation details:
-
-* Validates the dataset eagerly to guarantee every record contains an
-  `assistant` response.
-* Configures the tokenizer on-the-fly, guaranteeing a pad token exists
-  and using double-newline separators that mirror `teacher_label.py`.
-* Enables gradient checkpointing automatically on CUDA devices and
-  selects fp16 or bf16 based on GPU support unless QLoRA is active.
-  No user configuration is required—the script manages this
-  automatically.
-* Exposes adapter hyperparameters (`--lora_rank`, `--lora_alpha`,
-  `--lora_dropout`, `--target_modules`) alongside scheduling options so
-  new variants can be explored without code changes.
-* Merges and saves the fully materialised model and tokenizer to the
-  output directory, casting to `float16` when trained with QLoRA.
-
-## 🧪 `export_gguf.py`
-
-`desktop_distill/export_gguf.py` converts a fine-tuned HuggingFace
-model into the **GGUF** format and quantizes it using the
-`llama-quantize` binary from llama.cpp.  Enhancements captured in the
-current implementation include:
-
-* Automatic resolution of either local model directories or remote
-  HuggingFace repos via `huggingface_hub.snapshot_download`, with
-  optional `--revision` and `--hf-token` arguments.
-* Detailed command logging and error propagation to aid debugging,
-  including a `--preserve-tmp-dir` flag that retains intermediate
-  artifacts after failures.
-* Smarter naming of the resulting `.gguf` file based on the model id
-  and quantization type.
-* Comprehensive copying of tokenizer assets (files *and* directories)
-  into the output folder so llama.cpp has everything it needs.
-
-When executed inside CI (see `.github/workflows/gguf-build.yml`) the
-script produces a ready-to-download quantized model artifact.
-
-## 🧰 Raspberry Pi Scripts
-
-The `rpi4/` directory houses the on-device automation:
-
-* **setup_pi.sh** – installs dependencies, enables zram and builds
-  llama.cpp with OpenBLAS support on ARM64.
-* **get_model.sh** – downloads a pre-quantized TinyLlama or Qwen model
-  as a bootstrap option.
-* **run_decoder.sh** – launches interactive inference with configurable
-  context window, batching, KV cache, prompt cache and grammar inputs.
-* **run_encoder.sh** – computes embeddings for downstream search or
-  retrieval tasks.
-* **bench/pi_bench.py** – orchestrates llama.cpp benchmarks and
-  validates minimum token throughput using
-  `rpi4/bench/throughput_regressor.py`.
-
-Supporting modules such as `rpi4/bench/benchmark_csv.py` format timing
-data and persist CSV outputs for regressions tracking.
-
-## 🧭 Pipeline Helpers & UI
-
-`automation/pipeline_ops.py` exposes dataclass-backed builders that
-assemble the exact CLI invocations for every stage (teacher labelling,
-student training, GGUF export and benchmarking).  These helpers
-validate common mistakes (e.g. non-positive batch sizes) and are reused
-by the Textual dashboard in `automation/ui_app.py`.  The UI streams
-logs live, highlights required parameters, and is styled via
-`automation/ui_app.tcss`.  The training panel mirrors the CLI flags for
-LoRA/DoRA and QLoRA toggles while letting the Python script continue to
-manage gradient checkpointing automatically based on device support.
-
-For headless automation, `automation/e2e.sh` sequences the entire flow
-using environment variables declared in `.env`.  The `Makefile` mirrors
-the same primitives and is a convenient entry point for CI.
-
-## 🗂️ Dataset Blueprint
-
-The `dataset/qf_corpus_blueprint/scripts/dataset_card.py` module builds
-rich dataset cards from JSONL corpora.  It computes register and dialect
-distributions, aggregates provenance metadata (including tool versions)
-and exposes a CLI for reproducible documentation.  Companion utilities
-in `dataset/qf_corpus_blueprint/scripts/jsonl_utils.py` handle JSONL
-parsing so both the CLI and tests can share the same loaders.
-
-## ✅ Tests
-
-The `tests/` directory contains pytest suites that exercise dataset
-helpers, GGUF export tooling and pipeline command builders.  Use
-`pytest` to validate contributions and ensure CLI contracts remain
-stable.
-
-Refer to `README.md` for end-to-end usage examples and environment
-setup guidance.
+## 8. Enforcement
+8.1 Any contribution that violates these directives must be revised before it can be accepted.
+8.2 Automated or human reviewers should block changes that do not meet the delivery contract, documentation synchronization requirements, or session workflow steps.
