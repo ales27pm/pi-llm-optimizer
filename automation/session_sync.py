@@ -167,18 +167,26 @@ class AgentSynchroniser:
 
     def run(self) -> sync_agents.SyncResult:
         LOGGER.info("Synchronising scoped agent protocols...")
-        manifest = sync_agents.load_manifest(self.manifest_path, self.repo_root)
+        try:
+            manifest = sync_agents.load_manifest(self.manifest_path, self.repo_root)
+        except sync_agents.AgentEntryError as exc:
+            raise SessionSyncError(
+                f"Failed to load agents manifest {self.manifest_path}: {exc}"
+            ) from exc
         enforce_manifest = (
             self.enforce_override
             if self.enforce_override is not None
             else manifest.settings.enforce_tracked_agents
         )
-        result = sync_agents.apply_manifest(
-            manifest,
-            repo_root=self.repo_root,
-            write=not self.check,
-            enforce_manifest=enforce_manifest,
-        )
+        try:
+            result = sync_agents.apply_manifest(
+                manifest,
+                repo_root=self.repo_root,
+                write=not self.check,
+                enforce_manifest=enforce_manifest,
+            )
+        except sync_agents.AgentEntryError as exc:
+            raise SessionSyncError(f"Failed to apply agents manifest: {exc}") from exc
         if self.check and result.pending_updates:
             paths = ", ".join(
                 str(report.spec.target_file.relative_to(self.repo_root))
