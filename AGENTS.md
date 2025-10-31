@@ -1,4 +1,5 @@
 # AGENT_PROTOCOL_V1
+version: 1.0.0
 
 ## 1. Scope Matrix
 1.1 This file governs the entire repository except where a nested `AGENTS.md` overrides these directives.
@@ -34,7 +35,8 @@
 ## 6. Change Control
 6.1 Keep commit histories clean, scoped, and well described. Each commit must be self-contained and pass the quality gates.
 6.2 When refactoring, provide migration notes and ensure backwards compatibility or document breaking changes explicitly.
-6.3 Proactively remove dead code, redundant configuration, and unused assets encountered while working on a task.
+6.3 Proactively remove dead code, redundant configuration, and unused assets encountered while working on a task. This mandate
+    applies to all changes submitted after adopting this protocol.
 
 ## 7. Automation Maintenance
 7.1 Ensure `automation/update_and_cleanup.sh` remains accurate. Extend it whenever new documentation or cache locations appear.
