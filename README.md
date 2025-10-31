@@ -39,7 +39,7 @@ using [llama.cpp](https://github.com/ggml-org/llama.cpp).
   summarises register and dialect coverage, hashes corpora and emits
   provenance-rich dataset cards through a reusable library and CLI.
 * **Raspberry Pi Runtime** – Scripts in the `rpi4/` directory build
-  llama.cpp on ARM64 (with OpenBLAS), download a pre‑built model if
+  llama.cpp on ARM64 (with OpenBLAS), download a prebuilt model if
   desired, run the GGUF model interactively, fetch embeddings, and
   benchmark throughput to guard against regressions.
 

@@ -37,7 +37,7 @@ Updated capabilities worth noting when extending or reusing this agent:
 
 ## 🎓 `train_student.py`
 
-`desktop_distill/train_student.py` fine tunes a **student model** on
+`desktop_distill/train_student.py` fine-tunes a **student model** on
 the labelled dataset.  The script builds LoRA or DoRA adapters,
 optionally enables QLoRA (4-bit) training with `bitsandbytes`, and
 merges the adapters back into the base model on completion.  It
@@ -52,6 +52,8 @@ Key implementation details:
   and using double-newline separators that mirror `teacher_label.py`.
 * Enables gradient checkpointing automatically on CUDA devices and
   selects fp16 or bf16 based on GPU support unless QLoRA is active.
+  No user configuration is required—the script manages this
+  automatically.
 * Exposes adapter hyperparameters (`--lora_rank`, `--lora_alpha`,
   `--lora_dropout`, `--target_modules`) alongside scheduling options so
   new variants can be explored without code changes.

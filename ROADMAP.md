@@ -25,7 +25,7 @@ extends the capabilities already documented in `README.md` and
   `dataset_card.py --validate` in CI to block regressions and publish
   dataset card artifacts alongside training runs.
 - **Expanded QLoRA Coverage** – Document recommended quantization
-  configs, add regression tests for 4‑bit adapters and expose presets in
+  configs, add regression tests for 4-bit adapters and expose presets in
   the UI and command builders.
 - **Remote Model Export UX** – Add progress reporting and richer error
   diagnostics when resolving remote HuggingFace repos during GGUF
