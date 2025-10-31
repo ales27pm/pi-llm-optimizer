@@ -215,6 +215,55 @@ def test_cli_validate_reports_schema_errors(tmp_path: Path, monkeypatch: pytest.
     assert "validation error" in caplog.text.lower()
 
 
+def test_cli_validate_handles_invalid_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    pytest.importorskip("jsonschema")
+
+    data_path = tmp_path / "dataset.jsonl"
+    card_path = tmp_path / "card.json"
+    _write_jsonl(data_path, _sample_records())
+
+    class _FakeSchemaResource:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def joinpath(self, _name: str) -> "_FakeSchemaResource":
+            return self
+
+        def read_text(self, encoding: str = "utf-8") -> str:
+            return self._text
+
+        def __str__(self) -> str:
+            return "fake-schema"
+
+    invalid_schema = json.dumps({"type": "definitely-not-valid"})
+    monkeypatch.setattr(
+        "dataset.qf_corpus_blueprint.scripts.dataset_card.resources.files",
+        lambda _pkg: _FakeSchemaResource(invalid_schema),
+    )
+
+    caplog.set_level(logging.ERROR)
+    exit_code = build_card_cli(
+        [
+            "--data",
+            str(data_path),
+            "--output",
+            str(card_path),
+            "--split-name",
+            "analysis",
+            "--license",
+            "CC-BY-4.0",
+            "--creation-date",
+            "2024-05-01",
+            "--validate",
+        ]
+    )
+
+    assert exit_code == ExitCode.SCHEMA_LOAD_FAILED
+    assert "schema at fake-schema is invalid" in caplog.text.lower()
+
+
 def test_cli_validate_missing_jsonschema_dependency(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

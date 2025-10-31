@@ -299,6 +299,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.validate:
         try:
             from jsonschema import Draft7Validator  # type: ignore
+            from jsonschema.exceptions import SchemaError
         except ImportError:  # pragma: no cover - handled in tests via importorskip
             LOGGER.error("jsonschema is required for --validate. Install it with 'pip install jsonschema'.")
             return ExitCode.MISSING_VALIDATION_DEPENDENCY
@@ -341,7 +342,13 @@ def main(argv: Iterable[str] | None = None) -> int:
             LOGGER.error("Invalid JSON in dataset card schema: %s", exc)
             return ExitCode.SCHEMA_LOAD_FAILED
 
-        validator = Draft7Validator(schema)
+        try:
+            validator = Draft7Validator(schema)
+        except SchemaError as exc:  # pragma: no cover - guard against invalid bundled schema
+            location = schema_location or str(fallback_path)
+            LOGGER.error("Dataset card schema at %s is invalid: %s", location, exc)
+            return ExitCode.SCHEMA_LOAD_FAILED
+
         if errors := sorted(validator.iter_errors(card), key=lambda error: list(error.absolute_path)):
             for error in errors:
                 path = "/".join(str(part) for part in error.absolute_path) or "<root>"
