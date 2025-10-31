@@ -17,7 +17,7 @@ using [llama.cpp](https://github.com/ggml-org/llama.cpp).
   `user` and optional JSON schema instructions, supports batched
   generation, and can skip previously answered prompts so incremental
   labelling runs are fast.
-* **Student Training** – Fine tune a small base model (e.g. TinyLlama
+* **Student Training** – Fine-tune a small base model (e.g. TinyLlama
   1.1 B or Qwen 2.5 B) with LoRA or DoRA adapters, gradient checkpointing,
   mixed precision and optional QLoRA (k‑bit) training.  The
   `desktop_distill/train_student.py` script validates dataset integrity,
