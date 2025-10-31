@@ -232,6 +232,11 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         action="append",
         help="Record tool versions in NAME=VERSION form (may be repeated).",
     )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate the generated card against the dataset card JSON Schema before exiting.",
+    )
     return parser.parse_args(list(argv))
 
 
@@ -275,6 +280,31 @@ def main(argv: Iterable[str] | None = None) -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(card, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     LOGGER.info("Wrote dataset card to %s", args.output)
+
+    if args.validate:
+        try:
+            from jsonschema import Draft7Validator  # type: ignore
+        except ImportError:  # pragma: no cover - handled in tests via importorskip
+            LOGGER.error("jsonschema is required for --validate. Install it with 'pip install jsonschema'.")
+            return 6
+
+        schema_path = Path(__file__).resolve().parent.parent / "schema" / "dataset.card.schema.json"
+        try:
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        except OSError as exc:  # pragma: no cover - defensive guard for unexpected FS errors
+            LOGGER.error("Failed to read dataset card schema at %s: %s", schema_path, exc)
+            return 7
+
+        validator = Draft7Validator(schema)
+        errors = sorted(validator.iter_errors(card), key=lambda error: list(error.absolute_path))
+        if errors:
+            for error in errors:
+                path = "/".join(str(part) for part in error.absolute_path) or "<root>"
+                LOGGER.error("Validation error at %s: %s", path, error.message)
+            return 8
+
+        LOGGER.info("Validated dataset card against %s", schema_path)
+
     return 0
 
 

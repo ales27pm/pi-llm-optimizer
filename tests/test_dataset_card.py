@@ -91,7 +91,21 @@ def test_compute_file_sha256(tmp_path: Path) -> None:
 def test_cli_writes_card(tmp_path: Path) -> None:
     data_path = tmp_path / "dataset.jsonl"
     card_path = tmp_path / "card.json"
-    _write_jsonl(data_path, _sample_records())
+    records = _sample_records() + [
+        {
+            "record_id": "r4",
+            "register": "Formal",
+            "dialect_tag_list": ["C"],
+            "source_corpus_id": "demo_c",
+        },
+        {
+            "record_id": "r5",
+            "register": "Formal",
+            "dialect_tag_list": ["D"],
+            "source_corpus_id": "demo_d",
+        },
+    ]
+    _write_jsonl(data_path, records)
 
     exit_code = build_card_cli(
         [
@@ -118,3 +132,45 @@ def test_cli_writes_card(tmp_path: Path) -> None:
     payload = json.loads(card_path.read_text(encoding="utf-8"))
     assert payload["split_name"] == "train"
     assert payload["provenance"]["processing_steps"] == ["normalize"]
+
+
+def test_cli_validate_requires_schema(tmp_path: Path) -> None:
+    pytest.importorskip("jsonschema")
+
+    data_path = tmp_path / "dataset.jsonl"
+    card_path = tmp_path / "card.json"
+    records = _sample_records() + [
+        {
+            "record_id": "r4",
+            "register": "Formal",
+            "dialect_tag_list": ["C"],
+            "source_corpus_id": "demo_c",
+        },
+        {
+            "record_id": "r5",
+            "register": "Formal",
+            "dialect_tag_list": ["D"],
+            "source_corpus_id": "demo_d",
+        },
+    ]
+    _write_jsonl(data_path, records)
+
+    exit_code = build_card_cli(
+        [
+            "--data",
+            str(data_path),
+            "--output",
+            str(card_path),
+            "--split-name",
+            "analysis",
+            "--license",
+            "CC-BY-4.0",
+            "--creation-date",
+            "2024-05-01",
+            "--validate",
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(card_path.read_text(encoding="utf-8"))
+    assert payload["split_name"] == "analysis"

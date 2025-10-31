@@ -201,6 +201,39 @@ pip install -r automation/requirements.txt  # provides pytest & Textual deps
 pytest
 ```
 
+## Dataset CI
+
+Pull requests that modify anything under `dataset/` automatically trigger
+the **Dataset Card Validation** workflow.  GitHub Actions runs:
+
+```bash
+python dataset/qf_corpus_blueprint/scripts/dataset_card.py \
+    --data dataset/qf_corpus_blueprint/examples/sample.jsonl \
+    --output build/dataset_card.json \
+    --split-name analysis \
+    --license CC-BY-4.0 \
+    --schema-version 1.0.0 \
+    --creation-date 2024-01-01 \
+    --validate
+```
+
+The command produces a dataset card for the Québec French blueprint and
+validates it against `schema/dataset.card.schema.json`.  The resulting
+`build/dataset_card.json` file is attached to the workflow run so other
+jobs or reviewers can inspect the rendered metadata.
+
+Troubleshooting tips for failed runs:
+
+* **Missing `jsonschema`** – Install the validator dependency locally
+  with `pip install jsonschema` before re-running the command.
+* **Schema validation errors** – Inspect the workflow logs for the
+  failing field path (e.g. `register_distribution/Casual`).  Fix the
+  offending dataset records or adjust the blueprint helpers, then rerun
+  the script.
+* **Non-deterministic card output** – Ensure you supply a stable
+  `--creation-date` when generating cards locally; the CI workflow fixes
+  it to `2024-01-01` to keep artifacts reproducible.
+
 The Python scripts target CPython 3.10+.  Static type hints are
 included throughout the automation helpers to aid IDE integration.
 
