@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "settings": {
+    "enforceTrackedAgents": true,
+    "excludes": ["**/node_modules/**", "**/.git/**"]
+  },
+  "agents": [
+    {
+      "path": "automation",
+      "source": "automation/agent_sources/automation.md",
+      "tags": ["tooling", "python"],
+      "description": "Automation toolbox: Python modules, shell scripts, and Textual UI helpers."
+    },
+    {
+      "path": "desktop_distill",
+      "source": "automation/agent_sources/desktop_distill.md",
+      "tags": ["distillation", "ui"],
+      "description": "Desktop distillation and UI alignment requirements."
+    },
+    {
+      "path": "dataset",
+      "source": "automation/agent_sources/dataset.md",
+      "tags": ["data", "preprocessing"],
+      "description": "Dataset preparation, validation, and documentation guardrails."
+    },
+    {
+      "path": "rpi4",
+      "source": "automation/agent_sources/rpi4.md",
+      "tags": ["raspberry-pi", "runtime"],
+      "description": "Raspberry Pi runtime packaging and benchmarking guidance."
+    },
+    {
+      "path": "pi_llm_training",
+      "source": "automation/agent_sources/pi_llm_training.md",
+      "tags": ["training", "experiments"],
+      "description": "Training utilities, reproducibility, and checkpointing policies."
+    },
+    {
+      "path": "schemas",
+      "source": "automation/agent_sources/schemas.md",
+      "tags": ["schemas", "validation"],
+      "description": "JSON schema versioning, metadata, and validation expectations."
+    },
+    {
+      "path": "tests",
+      "source": "automation/agent_sources/tests.md",
+      "tags": ["testing"],
+      "description": "Test suite organisation, determinism, and integration labelling rules."
+    }
+  ]
+}

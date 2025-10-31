@@ -35,6 +35,10 @@ using [llama.cpp](https://github.com/ggml-org/llama.cpp).
   deployment and on-device benchmarking.  A Textual-powered dashboard
   (`automation/ui_app.py`) reuses the same builders to provide a guided
   terminal UI.
+* **Session Sync Automation** – `automation/session_sync.py` centralises
+  Prettier formatting, scoped agent protocol regeneration, optional
+  lint/test execution, and workspace cleanup with manifest enforcement
+  and dry-run checks wired through `automation/update_and_cleanup.sh`.
 * **Dataset Documentation** – `dataset/qf_corpus_blueprint/scripts/dataset_card.py`
   summarises register and dialect coverage, hashes corpora and emits
   provenance-rich dataset cards through a reusable library and CLI.
@@ -255,6 +259,36 @@ Troubleshooting tips for failed runs:
 
 The Python scripts target CPython 3.10+.  Static type hints are
 included throughout the automation helpers to aid IDE integration.
+
+## Maintenance Workflow
+
+Before opening a pull request, run the repository refresh script to
+format documentation, synchronise nested contributor guidance and remove
+stale artifacts:
+
+```bash
+./automation/update_and_cleanup.sh
+```
+
+The wrapper delegates to `automation/session_sync.py`, which coordinates
+Prettier formatting, manifest-driven protocol generation, optional
+`npm run lint`/`pytest` execution, and filesystem cleanup.  Canonical
+agent guidance lives under `automation/agent_sources/` and is compiled
+into tracked `AGENTS.md` files via `automation/agents_manifest.json`.
+Adjust the manifest instead of editing generated files by hand so
+updates remain reproducible across sessions.
+
+Environment toggles (set as `SESSION_SYNC_*` variables) map directly to
+the Python orchestrator:
+* `SESSION_SYNC_CHECK=1` or `./automation/update_and_cleanup.sh --check` – dry run; exit non-zero when formatting or agent files are stale.
+* `SESSION_SYNC_SKIP_FORMATTING=1`, `SESSION_SYNC_SKIP_AGENT_SYNC=1`,
+  `SESSION_SYNC_SKIP_CLEANUP=1` – selectively disable steps when
+  iterating on specific areas.
+* `SESSION_SYNC_RUN_NPM_LINT=1`, `SESSION_SYNC_RUN_PYTEST=1` – fold the
+  JavaScript lint check and pytest suite into the sync run.
+* `SESSION_SYNC_ENFORCE_MANIFEST=1` – fail when stray `AGENTS.md` files
+  are detected outside the manifest (enabled by default via manifest
+  settings).
 
 ## Notes
 
