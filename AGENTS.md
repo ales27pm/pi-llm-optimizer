@@ -9,86 +9,128 @@ customise the system.
 
 ## 🧠 `teacher_label.py`
 
-This script is responsible for **labelling the dataset** using a
-large teacher model.  It reads a JSONL file with user prompts,
-optional system hints and JSON schemas, constructs a textual prompt
-for each record and queries the teacher model to generate a response.
-The resulting file contains the original record with an additional
-`assistant` field holding the teacher’s reply.  You should run this
-once for each dataset you wish to use for distillation.
+`desktop_distill/teacher_label.py` is responsible for **labelling the
+dataset** using a large teacher model.  It reads JSONL rows containing
+user prompts, optional system hints and JSON schemas, constructs the
+full prompt, and queries a HuggingFace `pipeline` to generate a
+response.  The script writes the original record plus a newly populated
+`assistant` field to disk so that student training can begin.
 
-Key behaviours:
+Updated capabilities worth noting when extending or reusing this agent:
 
-* Concatenates `system_hint` and `user` fields to form the prompt.
-* Appends a JSON instruction and schema if `requires_json` is true.
-* Uses HuggingFace’s `pipeline` API for generation with configurable
-  `max_new_tokens`, temperature and sampling.
-* Strips the prompt from the output so only the generated text is
-  stored in `assistant`.
+* Concatenates `system_hint`, `user` and JSON instructions (when
+  `requires_json` is true) using double newlines so the student sees
+  the same structure during training.
+* Supports streaming multiple prompts per forward pass via
+  `--batch_size`.
+* Respects existing answers with the `--skip_existing` guard; skipped
+  rows are logged with identifiers for quick inspection.
+* Allows generation parameters such as `--max_new_tokens`,
+  `--temperature`, `--do_sample`, and `--device_map` to be configured
+  from the CLI or higher-level automation.
 
-> **Note:** If you maintain multiple dataset files (for example,
-> `dataset_quebecois_distill.jsonl` and the more conversational
-> `dataset_quebecois_conversation.jsonl`), run the labelling script
-> separately on each.  The conversation file contains everyday
-> Québécois dialogues that emphasise natural question‑asking and
-> colloquial language.  Label both files to create a comprehensive
-> training corpus.
+> **Tip:** Maintain separate JSONL files for different speaking styles
+> (e.g. `dataset_quebecois_distill.jsonl` for instructional data and
+> `dataset_quebecois_conversation.jsonl` for dialogues) and label each
+> file independently.  This keeps topic-specific prompts together while
+> allowing incremental labelling runs thanks to `--skip_existing`.
 
 ## 🎓 `train_student.py`
 
-After labelling, the next agent fine tunes a **student model** on the
-teacher‑generated dataset.  The script supports LoRA and DoRA
-adapters, gradient checkpointing and optional k‑bit (QLoRA) training to
-reduce memory usage.  Once training completes the adapters are merged
-back into the base model and the full model is saved to disk.
+`desktop_distill/train_student.py` fine-tunes a **student model** on
+the labelled dataset.  The script builds LoRA or DoRA adapters,
+optionally enables QLoRA (4-bit) training with `bitsandbytes`, and
+merges the adapters back into the base model on completion.  It
+preprocesses records by concatenating system hints, user prompts and
+assistant replies into a single causal language modelling sequence.
 
-Important features:
+Key implementation details:
 
-* Loads a base model and tokenizer from HuggingFace.
-* Preprocesses the dataset by concatenating system, user and assistant
-  text separated by double newlines.
-* Builds LoRA/DoRA adapters with configurable rank, alpha and dropout.
-* Enables gradient checkpointing and QLoRA when requested.
-* Uses `transformers.Trainer` with a cosine scheduler by default.
-
-You can experiment with different base models and training settings to
-strike a balance between quality and size.
+* Validates the dataset eagerly to guarantee every record contains an
+  `assistant` response.
+* Configures the tokenizer on-the-fly, guaranteeing a pad token exists
+  and using double-newline separators that mirror `teacher_label.py`.
+* Enables gradient checkpointing automatically on CUDA devices and
+  selects fp16 or bf16 based on GPU support unless QLoRA is active.
+  No user configuration is required—the script manages this
+  automatically.
+* Exposes adapter hyperparameters (`--lora_rank`, `--lora_alpha`,
+  `--lora_dropout`, `--target_modules`) alongside scheduling options so
+  new variants can be explored without code changes.
+* Merges and saves the fully materialised model and tokenizer to the
+  output directory, casting to `float16` when trained with QLoRA.
 
 ## 🧪 `export_gguf.py`
 
-This agent converts a fine‑tuned HuggingFace model into the **GGUF**
-format and quantizes it to the desired bit‑width.  It wraps the
-`convert_hf_to_gguf.py` script from `llama.cpp` and the
-`llama‑quantize` binary, producing a model that can be loaded by
-`llama.cpp` on the Raspberry Pi.  When run in a GitHub Action (see
-`.github/workflows/gguf-build.yml`), it automatically exports and
-uploads the GGUF artifact whenever a new git tag is pushed.
+`desktop_distill/export_gguf.py` converts a fine-tuned HuggingFace
+model into the **GGUF** format and quantizes it using the
+`llama-quantize` binary from llama.cpp.  Enhancements captured in the
+current implementation include:
+
+* Automatic resolution of either local model directories or remote
+  HuggingFace repos via `huggingface_hub.snapshot_download`, with
+  optional `--revision` and `--hf-token` arguments.
+* Detailed command logging and error propagation to aid debugging,
+  including a `--preserve-tmp-dir` flag that retains intermediate
+  artifacts after failures.
+* Smarter naming of the resulting `.gguf` file based on the model id
+  and quantization type.
+* Comprehensive copying of tokenizer assets (files *and* directories)
+  into the output folder so llama.cpp has everything it needs.
+
+When executed inside CI (see `.github/workflows/gguf-build.yml`) the
+script produces a ready-to-download quantized model artifact.
 
 ## 🧰 Raspberry Pi Scripts
 
-Under `rpi4/` you will find scripts that perform specific tasks on
-the Raspberry Pi:
+The `rpi4/` directory houses the on-device automation:
 
 * **setup_pi.sh** – installs dependencies, enables zram and builds
-  `llama.cpp` on ARM64 with OpenBLAS.
-* **get_model.sh** – downloads a pre‑quantized small model from
-  HuggingFace (TinyLlama 1.1 B or Qwen 2.5 B) as a starting point.
-* **run_decoder.sh** – runs the GGUF model interactively, with
-  optional grammar constraints, prompt caching and custom context
-  lengths.
-* **run_encoder.sh** – generates embeddings from the GGUF model for
-  use with a vector database.
-* **bench/pi_bench.py** – measures decode throughput and embedding
-  latency; fails if a minimum token rate is not met.
+  llama.cpp with OpenBLAS support on ARM64.
+* **get_model.sh** – downloads a pre-quantized TinyLlama or Qwen model
+  as a bootstrap option.
+* **run_decoder.sh** – launches interactive inference with configurable
+  context window, batching, KV cache, prompt cache and grammar inputs.
+* **run_encoder.sh** – computes embeddings for downstream search or
+  retrieval tasks.
+* **bench/pi_bench.py** – orchestrates llama.cpp benchmarks and
+  validates minimum token throughput using
+  `rpi4/bench/throughput_regressor.py`.
 
-## 🏗️ Makefile & Automation
+Supporting modules such as `rpi4/bench/benchmark_csv.py` format timing
+data and persist CSV outputs for regressions tracking.
 
-The `Makefile` exposes common tasks as single commands (e.g.
-`make distill`, `make export`, `make deploy`), while
-`automation/e2e.sh` chains the entire workflow together.  Combined
-with environment variables defined in `.env`, these scripts allow
-fully automated training, export and deployment from your desktop to
-the Pi.
+## 🧭 Pipeline Helpers & UI
 
-See the repository README for usage examples and the GitHub Action
-file for an example of continuous integration.
+`automation/pipeline_ops.py` exposes dataclass-backed builders that
+assemble the exact CLI invocations for every stage (teacher labelling,
+student training, GGUF export and benchmarking).  These helpers
+validate common mistakes (e.g. non-positive batch sizes) and are reused
+by the Textual dashboard in `automation/ui_app.py`.  The UI streams
+logs live, highlights required parameters, and is styled via
+`automation/ui_app.tcss`.  The training panel mirrors the CLI flags for
+LoRA/DoRA and QLoRA toggles while letting the Python script continue to
+manage gradient checkpointing automatically based on device support.
+
+For headless automation, `automation/e2e.sh` sequences the entire flow
+using environment variables declared in `.env`.  The `Makefile` mirrors
+the same primitives and is a convenient entry point for CI.
+
+## 🗂️ Dataset Blueprint
+
+The `dataset/qf_corpus_blueprint/scripts/dataset_card.py` module builds
+rich dataset cards from JSONL corpora.  It computes register and dialect
+distributions, aggregates provenance metadata (including tool versions)
+and exposes a CLI for reproducible documentation.  Companion utilities
+in `dataset/qf_corpus_blueprint/scripts/jsonl_utils.py` handle JSONL
+parsing so both the CLI and tests can share the same loaders.
+
+## ✅ Tests
+
+The `tests/` directory contains pytest suites that exercise dataset
+helpers, GGUF export tooling and pipeline command builders.  Use
+`pytest` to validate contributions and ensure CLI contracts remain
+stable.
+
+Refer to `README.md` for end-to-end usage examples and environment
+setup guidance.
