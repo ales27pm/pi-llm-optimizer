@@ -220,7 +220,9 @@ python dataset/qf_corpus_blueprint/scripts/dataset_card.py \
 The command produces a dataset card for the Québec French blueprint and
 validates it against `schema/dataset.card.schema.json`.  The resulting
 `build/dataset_card.json` file is attached to the workflow run so other
-jobs or reviewers can inspect the rendered metadata.
+jobs or reviewers can inspect the rendered metadata.  The workflow runs
+the validator on Python 3.10 and 3.11 to match the supported runtime
+matrix.
 
 Troubleshooting tips for failed runs:
 

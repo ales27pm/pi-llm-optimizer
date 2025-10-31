@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import builtins
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ from dataset.qf_corpus_blueprint.scripts.dataset_card import (
     compute_register_balance,
     compute_register_distribution,
     main as build_card_cli,
+    ExitCode,
 )
 
 
@@ -128,7 +131,7 @@ def test_cli_writes_card(tmp_path: Path) -> None:
         ]
     )
 
-    assert exit_code == 0
+    assert exit_code == ExitCode.SUCCESS
     payload = json.loads(card_path.read_text(encoding="utf-8"))
     assert payload["split_name"] == "train"
     assert payload["provenance"]["processing_steps"] == ["normalize"]
@@ -171,6 +174,81 @@ def test_cli_validate_requires_schema(tmp_path: Path) -> None:
         ]
     )
 
-    assert exit_code == 0
+    assert exit_code == ExitCode.SUCCESS
     payload = json.loads(card_path.read_text(encoding="utf-8"))
     assert payload["split_name"] == "analysis"
+
+
+def test_cli_validate_reports_schema_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    pytest.importorskip("jsonschema")
+
+    data_path = tmp_path / "dataset.jsonl"
+    card_path = tmp_path / "card.json"
+    _write_jsonl(data_path, _sample_records())
+
+    def _invalid_card(*_args, **_kwargs) -> dict:
+        return {"split_name": "train"}  # Missing required fields like record_count
+
+    monkeypatch.setattr(
+        "dataset.qf_corpus_blueprint.scripts.dataset_card.build_dataset_card",
+        _invalid_card,
+    )
+
+    caplog.set_level(logging.ERROR)
+    exit_code = build_card_cli(
+        [
+            "--data",
+            str(data_path),
+            "--output",
+            str(card_path),
+            "--split-name",
+            "analysis",
+            "--license",
+            "CC-BY-4.0",
+            "--creation-date",
+            "2024-05-01",
+            "--validate",
+        ]
+    )
+
+    assert exit_code == ExitCode.SCHEMA_VALIDATION_FAILED
+    assert "validation error" in caplog.text.lower()
+
+
+def test_cli_validate_missing_jsonschema_dependency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    data_path = tmp_path / "dataset.jsonl"
+    card_path = tmp_path / "card.json"
+    _write_jsonl(data_path, _sample_records())
+
+    real_import = builtins.__import__
+
+    def _blocking_import(name: str, *args, **kwargs):
+        if name == "jsonschema":  # pragma: no cover - executed in test
+            raise ImportError("No module named 'jsonschema'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _blocking_import)
+
+    caplog.set_level(logging.ERROR)
+    exit_code = build_card_cli(
+        [
+            "--data",
+            str(data_path),
+            "--output",
+            str(card_path),
+            "--split-name",
+            "analysis",
+            "--license",
+            "CC-BY-4.0",
+            "--creation-date",
+            "2024-05-01",
+            "--validate",
+        ]
+    )
+
+    assert exit_code == ExitCode.MISSING_VALIDATION_DEPENDENCY
+    assert "jsonschema is required" in caplog.text

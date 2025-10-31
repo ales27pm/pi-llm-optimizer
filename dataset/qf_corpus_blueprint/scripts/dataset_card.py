@@ -31,6 +31,8 @@ import statistics
 import sys
 from collections import Counter
 from datetime import date
+from enum import IntEnum
+from importlib import resources
 from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping, Sequence
 
@@ -43,6 +45,19 @@ except ImportError:  # pragma: no cover - fallback for ``python dataset_card.py`
 
 
 SplitName = str
+
+
+class ExitCode(IntEnum):
+    """Enumerates CLI exit codes for dataset card generation and validation."""
+
+    SUCCESS = 0
+    DATASET_NOT_FOUND = 2
+    DATASET_READ_FAILED = 3
+    EMPTY_DATASET = 4
+    CARD_BUILD_FAILED = 5
+    MISSING_VALIDATION_DEPENDENCY = 6
+    SCHEMA_LOAD_FAILED = 7
+    SCHEMA_VALIDATION_FAILED = 8
 
 
 def _normalise_distribution(counter: Counter[str]) -> dict[str, float]:
@@ -246,17 +261,17 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if not args.data.exists():
         LOGGER.error("Dataset not found: %s", args.data)
-        return 2
+        return ExitCode.DATASET_NOT_FOUND
 
     try:
         records = load_jsonl(args.data)
     except ValueError as exc:
         LOGGER.error("Failed to read dataset: %s", exc)
-        return 3
+        return ExitCode.DATASET_READ_FAILED
 
     if not records:
         LOGGER.error("Dataset %s is empty; cannot build a dataset card.", args.data)
-        return 4
+        return ExitCode.EMPTY_DATASET
 
     try:
         tool_versions = _parse_tool_versions(args.tool_version)
@@ -275,7 +290,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
     except ValueError as exc:
         LOGGER.error("%s", exc)
-        return 5
+        return ExitCode.CARD_BUILD_FAILED
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(card, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -286,26 +301,31 @@ def main(argv: Iterable[str] | None = None) -> int:
             from jsonschema import Draft7Validator  # type: ignore
         except ImportError:  # pragma: no cover - handled in tests via importorskip
             LOGGER.error("jsonschema is required for --validate. Install it with 'pip install jsonschema'.")
-            return 6
+            return ExitCode.MISSING_VALIDATION_DEPENDENCY
 
-        schema_path = Path(__file__).resolve().parent.parent / "schema" / "dataset.card.schema.json"
         try:
-            schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        except OSError as exc:  # pragma: no cover - defensive guard for unexpected FS errors
-            LOGGER.error("Failed to read dataset card schema at %s: %s", schema_path, exc)
-            return 7
+            schema_resource = resources.files("dataset.qf_corpus_blueprint.schema").joinpath("dataset.card.schema.json")
+            schema_text = schema_resource.read_text(encoding="utf-8")
+        except (OSError, ModuleNotFoundError) as exc:  # pragma: no cover - defensive guard for packaging issues
+            LOGGER.error("Failed to read dataset card schema resource: %s", exc)
+            return ExitCode.SCHEMA_LOAD_FAILED
+
+        try:
+            schema = json.loads(schema_text)
+        except json.JSONDecodeError as exc:  # pragma: no cover - handle malformed JSON
+            LOGGER.error("Invalid JSON in dataset card schema: %s", exc)
+            return ExitCode.SCHEMA_LOAD_FAILED
 
         validator = Draft7Validator(schema)
-        errors = sorted(validator.iter_errors(card), key=lambda error: list(error.absolute_path))
-        if errors:
+        if errors := sorted(validator.iter_errors(card), key=lambda error: list(error.absolute_path)):
             for error in errors:
                 path = "/".join(str(part) for part in error.absolute_path) or "<root>"
                 LOGGER.error("Validation error at %s: %s", path, error.message)
-            return 8
+            return ExitCode.SCHEMA_VALIDATION_FAILED
 
-        LOGGER.info("Validated dataset card against %s", schema_path)
+        LOGGER.info("Validated dataset card against %s", schema_resource)
 
-    return 0
+    return ExitCode.SUCCESS
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -319,5 +339,7 @@ __all__ = [
     "compute_dialect_distribution",
     "compute_register_balance",
     "main",
+    "ExitCode",
     "parse_args",
 ]
+
