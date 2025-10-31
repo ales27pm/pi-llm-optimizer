@@ -41,6 +41,35 @@ QLORA_PRESET_OPTIONS = [
 ]
 
 
+class QLoRaPresetController:
+    """Encapsulate QLoRA preset selection side effects for the UI."""
+
+    def __init__(self, app: "PipelineApp") -> None:
+        self._checkbox = app.query_one("#train-qlora", Checkbox)
+        self._log = app.query_one(TextLog)
+        self._presets = QLORA_PRESETS
+
+    def handle(self, value: Optional[str]) -> None:
+        enabled = bool(value)
+        self._checkbox.value = enabled
+
+        if not value:
+            self._log.write("Cleared QLoRA preset selection.")
+            return
+
+        preset = self._presets.get(value)
+        if preset is None:
+            self._log.write(
+                f"[yellow]WARNING:[/] Unknown preset '{value}'; using defaults."
+            )
+            return
+
+        self._log.write(
+            f"Selected QLoRA preset '{value}' → {preset.target_gpus} • {preset.quant_type} • "
+            f"{preset.notes or 'see README for recommended hyperparameters'}"
+        )
+
+
 class PipelineApp(App[None]):
     """A multi-panel Textual application for running pipeline stages."""
 
@@ -55,6 +84,10 @@ class PipelineApp(App[None]):
     ]
 
     current_panel: reactive[str] = reactive("label")
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._qlora_preset_controller: Optional[QLoRaPresetController] = None
 
     def compose(self) -> ComposeResult:  # pragma: no cover - UI composition
         yield Header(show_clock=True)
@@ -87,6 +120,7 @@ class PipelineApp(App[None]):
             log_widget.write(
                 "[yellow]WARNING:[/] Agent protocol metadata could not be loaded. Review AGENTS.md for format changes."
             )
+        self._qlora_preset_controller = QLoRaPresetController(self)
 
     async def action_switch(self, panel_id: str) -> None:  # pragma: no cover - runtime behaviour
         self._switch_panel(panel_id)
@@ -101,28 +135,9 @@ class PipelineApp(App[None]):
 
     @on(Select.Changed, "#train-qlora-preset")
     def _when_preset_selected(self, event: Select.Changed) -> None:  # pragma: no cover - UI event
-        qlora_checkbox = self.query_one("#train-qlora", Checkbox)
-        qlora_checkbox.value = bool(event.value)
-        log = self.query_one(TextLog)
-        if event.value:
-            preset = QLORA_PRESETS.get(str(event.value))
-            if preset is not None:
-                log.write(
-                    "Selected QLoRA preset '%s' → %s • quant=%s • %s"
-                    % (
-                        str(event.value),
-                        preset.target_gpus,
-                        preset.quant_type,
-                        preset.notes or "see README for recommended hyperparameters",
-                    )
-                )
-            else:
-                log.write(
-                    "[yellow]WARNING:[/] Unknown preset '%s' selected; default hyperparameters will be used."
-                    % str(event.value)
-                )
-        else:
-            log.write("Cleared QLoRA preset selection.")
+        if self._qlora_preset_controller is None:
+            self._qlora_preset_controller = QLoRaPresetController(self)
+        self._qlora_preset_controller.handle(event.value if event.value else None)
 
     def _switch_panel(self, panel_id: str) -> None:
         panel_holder = self.query_one("#panel-holder")
@@ -371,9 +386,7 @@ class PipelineApp(App[None]):
     def _optional_select(self, selector: str) -> Optional[str]:
         widget = self.query_one(selector, Select)
         value = widget.value
-        if value is Select.BLANK or value == "":
-            return None
-        return str(value)
+        return None if value is Select.BLANK or value == "" else str(value)
 
     def _report_error(self, message: str) -> None:
         log = self.query_one(TextLog)

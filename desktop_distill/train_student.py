@@ -49,7 +49,7 @@ import json
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from datasets import Dataset
@@ -149,6 +149,65 @@ def _resolve_compute_dtype(name: str) -> torch.dtype:
         return mapping[name]
     except KeyError as exc:  # pragma: no cover - defensive guard for new presets
         raise ValueError(f"Unsupported compute dtype '{name}' in QLoRA preset") from exc
+
+
+def _build_4bit_config(preset: Optional[QLoRAPreset]) -> BitsAndBytesConfig:
+    """Create a BitsAndBytes configuration using either preset or default values."""
+
+    if preset is not None:
+        compute_dtype = _resolve_compute_dtype(preset.compute_dtype)
+        if compute_dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
+            warnings.warn(
+                (
+                    f"Preset '{preset.label}' requests bf16 compute but support is missing; "
+                    "falling back to float16."
+                ),
+                RuntimeWarning,
+            )
+            compute_dtype = torch.float16
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=preset.double_quant,
+            bnb_4bit_quant_type=preset.quant_type,
+        )
+
+    default_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    return BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=default_dtype,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+    )
+
+
+def _build_adapter_config(
+    args: argparse.Namespace, preset: Optional[QLoRAPreset]
+) -> Union["LoraConfig", "DORAConfig"]:
+    """Create the appropriate LoRA/DoRA configuration using presets when available."""
+
+    def pick(field: str):
+        if preset is not None and getattr(preset, field) is not None:
+            return getattr(preset, field)
+        return getattr(args, field)
+
+    target_spec = (
+        preset.target_modules if preset is not None and preset.target_modules else args.target_modules
+    )
+    target_modules = [module.strip() for module in target_spec.split(",") if module.strip()]
+    common_kwargs = dict(
+        r=pick("lora_rank"),
+        lora_alpha=pick("lora_alpha"),
+        lora_dropout=pick("lora_dropout"),
+        target_modules=target_modules,
+    )
+
+    if args.use_dora:
+        if DORAConfig is None:
+            raise RuntimeError("DoRA is not available in this PEFT version")
+        return DORAConfig(**common_kwargs)
+
+    return LoraConfig(bias="none", task_type="CAUSAL_LM", **common_kwargs)
 
 
 def load_dataset_from_jsonl(path: Path) -> Dataset:
@@ -324,7 +383,7 @@ def _build_data_pipeline(
 def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
     preset = QLORA_PRESETS.get(args.qlora_preset) if args.qlora_preset else None
     model_kwargs: Dict[str, Any] = {}
-    torch_dtype: Optional[torch.dtype]
+    torch_dtype: Optional[torch.dtype] = torch.float16 if torch.cuda.is_available() else torch.float32
     if args.qlora:
         if prepare_model_for_kbit_training is None:
             raise RuntimeError(
@@ -333,34 +392,9 @@ def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
             )
         if not torch.cuda.is_available():
             raise RuntimeError("QLoRA requires a CUDA-capable GPU.")
-        if preset is not None:
-            compute_dtype = _resolve_compute_dtype(preset.compute_dtype)
-            if compute_dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
-                warnings.warn(
-                    (
-                        f"Preset '{args.qlora_preset}' requests bf16 compute but the current GPU "
-                        "does not support it. Falling back to float16."
-                    ),
-                    RuntimeWarning,
-                )
-                compute_dtype = torch.float16
-            quant_type = preset.quant_type
-            double_quant = preset.double_quant
-        else:
-            compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            quant_type = "nf4"
-            double_quant = True
-        quant_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=double_quant,
-            bnb_4bit_quant_type=quant_type,
-        )
-        model_kwargs["quantization_config"] = quant_config
-        model_kwargs["device_map"] = "auto"
+        quant_config = _build_4bit_config(preset)
+        model_kwargs.update(device_map="auto", quantization_config=quant_config)
         torch_dtype = None
-    else:
-        torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
@@ -378,33 +412,7 @@ def _initialise_model(args: argparse.Namespace, tokenizer) -> Any:
             use_gradient_checkpointing=True,
         )
 
-    target_module_spec = preset.target_modules if preset and preset.target_modules else args.target_modules
-    target_mods = [m.strip() for m in target_module_spec.split(",") if m.strip()]
-    lora_rank = preset.lora_rank if preset and preset.lora_rank is not None else args.lora_rank
-    lora_alpha = preset.lora_alpha if preset and preset.lora_alpha is not None else args.lora_alpha
-    lora_dropout = (
-        preset.lora_dropout if preset and preset.lora_dropout is not None else args.lora_dropout
-    )
-    if args.use_dora:
-        if "DORAConfig" not in globals() or DORAConfig is None:
-            raise RuntimeError(
-                "DoRA is not available in your version of peft. Use --use_dora only if supported."
-            )
-        adapter_config = DORAConfig(
-            r=lora_rank,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout,
-            target_modules=target_mods,
-        )
-    else:
-        adapter_config = LoraConfig(
-            r=lora_rank,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout,
-            target_modules=target_mods,
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
+    adapter_config = _build_adapter_config(args, preset)
     model = get_peft_model(model, adapter_config)
     model.print_trainable_parameters()
     return model
