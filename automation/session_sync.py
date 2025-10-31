@@ -8,9 +8,10 @@ import logging
 import shutil
 import subprocess
 import sys
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import sync_agents
 
@@ -61,43 +62,57 @@ class SessionSyncSummary:
     cleanup: Optional[CleanupSummary]
 
 
-class SessionSync:
-    """Coordinate formatting, protocol generation, and workspace cleanup."""
+class CommandRunner:
+    """Execute subprocess commands with consistent validation and logging."""
 
-    def __init__(self, config: SessionSyncConfig) -> None:
-        self.config = config
-        self.repo_root = config.repo_root
-        self.manifest_path = config.manifest_path
+    def __init__(self, repo_root: Path) -> None:
+        self.repo_root = repo_root
 
-    # Public API ---------------------------------------------------------
-    def run(self) -> SessionSyncSummary:
-        formatting_summary: Optional[FormattingSummary] = None
-        agent_summary: Optional[sync_agents.SyncResult] = None
-        cleanup_summary: Optional[CleanupSummary] = None
+    def _validate(self, command: Sequence[str]) -> Tuple[str, ...]:
+        if not command:
+            raise SessionSyncError("Command must not be empty.")
+        validated = [str(token) for token in command]
+        if any(not token for token in validated):
+            raise SessionSyncError("Command components must be non-empty strings.")
+        return tuple(validated)
 
-        if not self.config.skip_formatting:
-            formatting_summary = self._format_markdown()
+    def run(self, command: Sequence[str], description: str) -> None:
+        validated = self._validate(command)
+        LOGGER.info("Running %s...", description)
+        LOGGER.debug("Command: %s", shlex.join(validated))
+        try:
+            subprocess.run(validated, cwd=self.repo_root, check=True)
+        except FileNotFoundError as exc:
+            raise SessionSyncError(f"Required command for {description} not found: {validated[0]}") from exc
+        except subprocess.CalledProcessError as exc:
+            raise SessionSyncError(f"{description} failed with exit code {exc.returncode}") from exc
 
-        if not self.config.skip_agent_sync:
-            agent_summary = self._sync_agent_protocols()
+    def capture(self, command: Sequence[str], description: str) -> subprocess.CompletedProcess[str]:
+        validated = self._validate(command)
+        LOGGER.debug("Capturing output for %s: %s", description, shlex.join(validated))
+        try:
+            return subprocess.run(
+                validated,
+                cwd=self.repo_root,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+        except FileNotFoundError as exc:
+            raise SessionSyncError(f"Required command for {description} not found: {validated[0]}") from exc
+        except subprocess.CalledProcessError as exc:
+            raise SessionSyncError(f"{description} failed with exit code {exc.returncode}") from exc
 
-        if not self.config.skip_cleanup:
-            cleanup_summary = self._cleanup_workspace()
 
-        if self.config.run_npm_lint:
-            self._run_subprocess(["npm", "run", "lint"], "npm lint")
+class MarkdownFormatter:
+    """Format repository markdown files using Prettier."""
 
-        if self.config.run_pytest:
-            self._run_subprocess(["python", "-m", "pytest"], "pytest")
+    def __init__(self, repo_root: Path, *, check: bool, commands: CommandRunner) -> None:
+        self.repo_root = repo_root
+        self.check = check
+        self.commands = commands
 
-        return SessionSyncSummary(
-            formatting=formatting_summary,
-            agent_sync=agent_summary,
-            cleanup=cleanup_summary,
-        )
-
-    # Internal helpers ---------------------------------------------------
-    def _format_markdown(self) -> FormattingSummary:
+    def run(self) -> FormattingSummary:
         LOGGER.info("Formatting tracked Markdown files...")
         git = shutil.which("git")
         npx = shutil.which("npx")
@@ -106,52 +121,69 @@ class SessionSync:
         if npx is None:
             raise SessionSyncError("npx is required to run Prettier. Install Node.js tooling.")
 
-        command = [
-            git,
-            "ls-files",
-            "*.md",
-        ]
-        result = subprocess.run(
-            command,
-            cwd=self.repo_root,
-            check=True,
-            text=True,
-            capture_output=True,
-        )
+        result = self.commands.capture([git, "ls-files", "*.md"], "git ls-files for markdown")
         files = [Path(line.strip()) for line in result.stdout.splitlines() if line.strip()]
         if not files:
             LOGGER.info("No markdown files detected; skipping Prettier.")
-            return FormattingSummary(processed_files=(), mode="check" if self.config.check else "write")
+            mode = "check" if self.check else "write"
+            return FormattingSummary(processed_files=(), mode=mode)
 
-        prettier_command: List[str] = [npx, "--yes", "prettier", "--log-level", "warn"]
-        mode = "check" if self.config.check else "write"
-        prettier_command.append(f"--{mode}")
-        prettier_command.extend(str(path) for path in files)
+        mode = "check" if self.check else "write"
+        prettier_command: List[str] = [
+            npx,
+            "--yes",
+            "prettier",
+            "--log-level",
+            "warn",
+            f"--{mode}",
+            *[str(path) for path in files],
+        ]
 
         try:
-            self._run_subprocess(prettier_command, f"prettier ({mode})")
+            self.commands.run(prettier_command, f"prettier ({mode})")
         except SessionSyncError as exc:
-            if self.config.check:
+            if self.check:
                 raise
             raise SessionSyncError(f"Prettier formatting failed: {exc}") from exc
-        return FormattingSummary(processed_files=tuple(self.repo_root / path for path in files), mode=mode)
+        processed = tuple(self.repo_root / path for path in files)
+        return FormattingSummary(processed_files=processed, mode=mode)
 
-    def _sync_agent_protocols(self) -> sync_agents.SyncResult:
+
+class AgentSynchroniser:
+    """Apply the agents manifest and enforce consistency guarantees."""
+
+    def __init__(
+        self,
+        repo_root: Path,
+        manifest_path: Path,
+        *,
+        check: bool,
+        enforce_override: Optional[bool],
+    ) -> None:
+        self.repo_root = repo_root
+        self.manifest_path = manifest_path
+        self.check = check
+        self.enforce_override = enforce_override
+
+    def run(self) -> sync_agents.SyncResult:
         LOGGER.info("Synchronising scoped agent protocols...")
         manifest = sync_agents.load_manifest(self.manifest_path, self.repo_root)
         enforce_manifest = (
-            self.config.enforce_manifest
-            if self.config.enforce_manifest is not None
+            self.enforce_override
+            if self.enforce_override is not None
             else manifest.settings.enforce_tracked_agents
         )
         result = sync_agents.apply_manifest(
             manifest,
             repo_root=self.repo_root,
-            write=not self.config.check,
+            write=not self.check,
             enforce_manifest=enforce_manifest,
         )
-        if self.config.check and result.pending_updates:
-            paths = ", ".join(str(report.spec.target_file.relative_to(self.repo_root)) for report in result.pending_updates)
+        if self.check and result.pending_updates:
+            paths = ", ".join(
+                str(report.spec.target_file.relative_to(self.repo_root))
+                for report in result.pending_updates
+            )
             raise SessionSyncError(
                 f"Agent protocols are out of sync: {paths}. Run without --check to regenerate files."
             )
@@ -162,7 +194,14 @@ class SessionSync:
             )
         return result
 
-    def _cleanup_workspace(self) -> CleanupSummary:
+
+class WorkspaceCleaner:
+    """Remove generated caches and temporary artefacts from the repository."""
+
+    def __init__(self, repo_root: Path) -> None:
+        self.repo_root = repo_root
+
+    def run(self) -> CleanupSummary:
         LOGGER.info("Removing cached Python bytecode directories...")
         pycache_dirs = list(self.repo_root.rglob("__pycache__"))
         removed_pycache = 0
@@ -189,14 +228,66 @@ class SessionSync:
             temp_files_removed=removed_files,
         )
 
-    def _run_subprocess(self, command: Sequence[str], step: str) -> None:
-        LOGGER.info("Running %s...", step)
-        try:
-            subprocess.run(command, cwd=self.repo_root, check=True)
-        except FileNotFoundError as exc:
-            raise SessionSyncError(f"Required command for {step} not found: {command[0]}") from exc
-        except subprocess.CalledProcessError as exc:
-            raise SessionSyncError(f"{step} failed with exit code {exc.returncode}") from exc
+
+class SessionSync:
+    """Coordinate formatting, protocol generation, and workspace cleanup."""
+
+    def __init__(self, config: SessionSyncConfig) -> None:
+        self.config = config
+        self.repo_root = config.repo_root
+        self.manifest_path = config.manifest_path
+        self.commands = CommandRunner(self.repo_root)
+        self.formatter = MarkdownFormatter(
+            self.repo_root,
+            check=config.check,
+            commands=self.commands,
+        )
+        self.agent_sync = AgentSynchroniser(
+            self.repo_root,
+            self.manifest_path,
+            check=config.check,
+            enforce_override=config.enforce_manifest,
+        )
+        self.cleaner = WorkspaceCleaner(self.repo_root)
+
+    # Public API ---------------------------------------------------------
+    def run(self) -> SessionSyncSummary:
+        task_map: Dict[str, object] = {}
+        tasks: Sequence[tuple[bool, Callable[[], object], str]] = (
+            (
+                not self.config.skip_formatting,
+                self.formatter.run,
+                "formatting",
+            ),
+            (
+                not self.config.skip_agent_sync,
+                self.agent_sync.run,
+                "agent_sync",
+            ),
+            (
+                not self.config.skip_cleanup,
+                self.cleaner.run,
+                "cleanup",
+            ),
+        )
+
+        for enabled, runner, key in tasks:
+            if enabled:
+                task_map[key] = runner()
+
+        post_steps = (
+            (self.config.run_npm_lint, ["npm", "run", "lint"], "npm lint"),
+            (self.config.run_pytest, ["python", "-m", "pytest"], "pytest"),
+        )
+        for enabled, command, label in post_steps:
+            if enabled:
+                self.commands.run(command, label)
+
+        return SessionSyncSummary(
+            formatting=task_map.get("formatting"),
+            agent_sync=task_map.get("agent_sync"),
+            cleanup=task_map.get("cleanup"),
+        )
 
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -258,7 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if summary.agent_sync:
         LOGGER.info(
             "Agent synchronisation complete: %s",
-            ", ".join(report.status.value for report in summary.agent_sync.reports),
+            sync_agents.summarise_reports(summary.agent_sync),
         )
     if summary.cleanup:
         LOGGER.info(

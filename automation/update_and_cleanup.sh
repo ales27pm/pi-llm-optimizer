@@ -20,33 +20,47 @@ fi
 
 SESSION_SYNC_ARGS=("--repo-root" "${REPO_ROOT}")
 
-if [[ "${SESSION_SYNC_CHECK:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--check")
-fi
-if [[ "${SESSION_SYNC_SKIP_FORMATTING:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--skip-formatting")
-fi
-if [[ "${SESSION_SYNC_SKIP_AGENT_SYNC:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--skip-agent-sync")
-fi
-if [[ "${SESSION_SYNC_SKIP_CLEANUP:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--skip-cleanup")
-fi
-if [[ "${SESSION_SYNC_RUN_NPM_LINT:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--run-npm-lint")
-fi
-if [[ "${SESSION_SYNC_RUN_PYTEST:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--run-pytest")
-fi
-if [[ "${SESSION_SYNC_ENFORCE_MANIFEST:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--enforce-manifest")
-fi
-if [[ "${SESSION_SYNC_VERBOSE:-0}" == "1" ]]; then
-  SESSION_SYNC_ARGS+=("--verbose")
-fi
+CURRENT_STEP="initialisation"
+
+on_error() {
+  local exit_code=$1
+  local line_no=$2
+  log "ERROR: Step '${CURRENT_STEP}' failed at line ${line_no} with exit code ${exit_code}."
+  exit ${exit_code}
+}
+
+trap 'on_error $? ${LINENO}' ERR
+
+declare -a FLAG_ENV_MAP=(
+  "SESSION_SYNC_CHECK=--check"
+  "SESSION_SYNC_SKIP_FORMATTING=--skip-formatting"
+  "SESSION_SYNC_SKIP_AGENT_SYNC=--skip-agent-sync"
+  "SESSION_SYNC_SKIP_CLEANUP=--skip-cleanup"
+  "SESSION_SYNC_RUN_NPM_LINT=--run-npm-lint"
+  "SESSION_SYNC_RUN_PYTEST=--run-pytest"
+  "SESSION_SYNC_ENFORCE_MANIFEST=--enforce-manifest"
+  "SESSION_SYNC_VERBOSE=--verbose"
+)
+
+for mapping in "${FLAG_ENV_MAP[@]}"; do
+  IFS="=" read -r env_var flag <<<"${mapping}"
+  if [[ "${!env_var:-0}" == "1" ]]; then
+    SESSION_SYNC_ARGS+=("${flag}")
+  fi
+done
 
 SESSION_SYNC_ARGS+=("$@")
 
-log "Executing automation.session_sync with arguments: ${SESSION_SYNC_ARGS[*]}"
-python3 -m automation.session_sync "${SESSION_SYNC_ARGS[@]}"
+run_step() {
+  local step_name=$1
+  shift
+  CURRENT_STEP=${step_name}
+  log "Starting ${step_name}..."
+  "$@"
+  log "Completed ${step_name}."
+}
+
+log "automation.session_sync arguments: ${SESSION_SYNC_ARGS[*]}"
+run_step "automation.session_sync" python3 -m automation.session_sync "${SESSION_SYNC_ARGS[@]}"
+
 log "Repository refresh complete."

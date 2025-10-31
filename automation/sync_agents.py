@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from collections import Counter
 from collections.abc import Mapping, MutableMapping
 from typing import List, Optional, Sequence
 
@@ -264,6 +265,66 @@ def _collect_existing_agent_files(repo_root: Path, excludes: Sequence[str]) -> S
     return tracked
 
 
+def _write_agent_file(target: Path, content: str, repo_root: Path) -> None:
+    try:
+        target.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        relative = target.relative_to(repo_root)
+        raise AgentEntryError(f"Failed to write agent file {relative}: {exc}") from exc
+
+
+def _sync_agent(spec: AgentSpec, *, repo_root: Path, write: bool) -> SyncReport:
+    target = spec.target_file
+    desired_content = spec.content
+    exists = target.exists()
+    existing_content = target.read_text(encoding="utf-8") if exists else None
+
+    if exists and existing_content == desired_content:
+        logging.debug("Agent %s already up to date.", target.relative_to(repo_root))
+        status = AgentSyncStatus.UNCHANGED
+    elif exists:
+        status = AgentSyncStatus.UPDATED if write else AgentSyncStatus.WOULD_UPDATE
+        if write:
+            logging.info("Updating %s", target.relative_to(repo_root))
+            _write_agent_file(target, desired_content, repo_root)
+        else:
+            logging.warning(
+                "Agent %s would be updated (run without --check to apply).",
+                target.relative_to(repo_root),
+            )
+    else:
+        status = AgentSyncStatus.CREATED if write else AgentSyncStatus.WOULD_CREATE
+        if write:
+            logging.info("Creating %s", target.relative_to(repo_root))
+            _write_agent_file(target, desired_content, repo_root)
+        else:
+            logging.warning(
+                "Agent %s would be created (run without --check to apply).",
+                target.relative_to(repo_root),
+            )
+
+    return SyncReport(spec=spec, status=status)
+
+
+def _detect_stray_agents(
+    repo_root: Path, *, agents: Sequence[AgentSpec], excludes: Sequence[str]
+) -> Sequence[Path]:
+    tracked_targets = {spec.target_file.resolve() for spec in agents}
+    existing_agents = _collect_existing_agent_files(repo_root, excludes)
+    return tuple(path for path in existing_agents if path.resolve() not in tracked_targets)
+
+
+def _log_stray_agents(stray_agents: Sequence[Path], *, repo_root: Path, enforce: bool) -> None:
+    if not stray_agents:
+        return
+
+    stray_list = ", ".join(str(path.relative_to(repo_root)) for path in stray_agents)
+    if enforce:
+        logging.error("Untracked agent protocols detected: %s", stray_list)
+    else:
+        logging.warning("Untracked agent protocols detected (ignored): %s", stray_list)
+
+
 def apply_manifest(
     manifest: Manifest,
     *,
@@ -271,62 +332,14 @@ def apply_manifest(
     write: bool,
     enforce_manifest: bool,
 ) -> SyncResult:
-    reports: List[SyncReport] = []
-    for spec in manifest.agents:
-        target = spec.target_file
-        desired_content = spec.content
-        if target.exists():
-            existing_content = target.read_text(encoding="utf-8")
-            if existing_content == desired_content:
-                status = AgentSyncStatus.UNCHANGED
-                logging.debug("Agent %s already up to date.", target.relative_to(repo_root))
-            else:
-                if write:
-                    logging.info("Updating %s", target.relative_to(repo_root))
-                    try:
-                        target.write_text(desired_content, encoding="utf-8")
-                    except OSError as exc:
-                        raise AgentEntryError(
-                            f"Failed to write agent file {target.relative_to(repo_root)}: {exc}"
-                        ) from exc
-                    status = AgentSyncStatus.UPDATED
-                else:
-                    logging.warning(
-                        "Agent %s would be updated (run without --check to apply).",
-                        target.relative_to(repo_root),
-                    )
-                    status = AgentSyncStatus.WOULD_UPDATE
-        else:
-            if not write:
-                logging.warning(
-                    "Agent %s would be created (run without --check to apply).",
-                    target.relative_to(repo_root),
-                )
-                status = AgentSyncStatus.WOULD_CREATE
-            else:
-                logging.info("Creating %s", target.relative_to(repo_root))
-                try:
-                    target.write_text(desired_content, encoding="utf-8")
-                except OSError as exc:
-                    raise AgentEntryError(
-                        f"Failed to write agent file {target.relative_to(repo_root)}: {exc}"
-                    ) from exc
-                status = AgentSyncStatus.CREATED
-        reports.append(SyncReport(spec=spec, status=status))
-
-    tracked_targets = {spec.target_file.resolve() for spec in manifest.agents}
-    excludes = manifest.settings.excludes
-    existing_agents = _collect_existing_agent_files(repo_root, excludes)
-    stray_agents = [path for path in existing_agents if path.resolve() not in tracked_targets]
-
-    if stray_agents and enforce_manifest:
-        stray_list = ", ".join(str(path.relative_to(repo_root)) for path in stray_agents)
-        logging.error("Untracked agent protocols detected: %s", stray_list)
-    elif stray_agents:
-        stray_list = ", ".join(str(path.relative_to(repo_root)) for path in stray_agents)
-        logging.warning("Untracked agent protocols detected (ignored): %s", stray_list)
-
-    return SyncResult(reports=tuple(reports), stray_agents=tuple(stray_agents))
+    reports = tuple(_sync_agent(spec, repo_root=repo_root, write=write) for spec in manifest.agents)
+    stray_agents = _detect_stray_agents(
+        repo_root,
+        agents=manifest.agents,
+        excludes=manifest.settings.excludes,
+    )
+    _log_stray_agents(stray_agents, repo_root=repo_root, enforce=enforce_manifest)
+    return SyncResult(reports=reports, stray_agents=stray_agents)
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -363,11 +376,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _summarise_reports(result: SyncResult) -> str:
-    counts: MutableMapping[AgentSyncStatus, int] = {status: 0 for status in AgentSyncStatus}
-    for report in result.reports:
-        counts[report.status] += 1
-    fragments = [f"{status.value}={counts[status]}" for status in AgentSyncStatus]
+def summarise_reports(result: SyncResult) -> str:
+    counts = Counter(report.status for report in result.reports)
+    fragments = [f"{status.value}={counts.get(status, 0)}" for status in AgentSyncStatus]
     if result.stray_agents:
         fragments.append(f"stray={len(result.stray_agents)}")
     return ", ".join(fragments)
@@ -400,7 +411,7 @@ def main(argv: Sequence[str]) -> int:
         logging.error("%s", exc)
         return 1
 
-    summary = _summarise_reports(result)
+    summary = summarise_reports(result)
     if args.check:
         if result.pending_updates:
             for report in result.pending_updates:
