@@ -303,12 +303,37 @@ def main(argv: Iterable[str] | None = None) -> int:
             LOGGER.error("jsonschema is required for --validate. Install it with 'pip install jsonschema'.")
             return ExitCode.MISSING_VALIDATION_DEPENDENCY
 
+        schema_package = "dataset.qf_corpus_blueprint.schema"
+        fallback_path = Path(__file__).resolve().parent.parent / "schema" / "dataset.card.schema.json"
+        schema_text: str | None = None
+        schema_location: str | None = None
+
         try:
-            schema_resource = resources.files("dataset.qf_corpus_blueprint.schema").joinpath("dataset.card.schema.json")
+            schema_resource = resources.files(schema_package).joinpath("dataset.card.schema.json")
             schema_text = schema_resource.read_text(encoding="utf-8")
-        except (OSError, ModuleNotFoundError) as exc:  # pragma: no cover - defensive guard for packaging issues
-            LOGGER.error("Failed to read dataset card schema resource: %s", exc)
-            return ExitCode.SCHEMA_LOAD_FAILED
+            schema_location = str(schema_resource)
+        except ModuleNotFoundError as exc:  # pragma: no cover - occurs when executed as a script without package context
+            LOGGER.debug(
+                "Package %s is unavailable (%s); falling back to filesystem schema at %s",
+                schema_package,
+                exc,
+                fallback_path,
+            )
+        except OSError as exc:  # pragma: no cover - defensive guard for resource access failures
+            LOGGER.warning(
+                "Failed to read dataset card schema resource from %s (%s); falling back to %s",
+                schema_package,
+                exc,
+                fallback_path,
+            )
+
+        if schema_text is None:
+            try:
+                schema_text = fallback_path.read_text(encoding="utf-8")
+                schema_location = str(fallback_path)
+            except OSError as exc:  # pragma: no cover - defensive guard for unexpected FS errors
+                LOGGER.error("Failed to read dataset card schema at %s: %s", fallback_path, exc)
+                return ExitCode.SCHEMA_LOAD_FAILED
 
         try:
             schema = json.loads(schema_text)
@@ -323,7 +348,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 LOGGER.error("Validation error at %s: %s", path, error.message)
             return ExitCode.SCHEMA_VALIDATION_FAILED
 
-        LOGGER.info("Validated dataset card against %s", schema_resource)
+        LOGGER.info("Validated dataset card against %s", schema_location)
 
     return ExitCode.SUCCESS
 
