@@ -23,21 +23,23 @@ Example usage::
         --gradient_accumulation_steps 8 \
         --learning_rate 2e-5
 
-Recommended QLoRA presets (validated on synthetic sanity suites and
-real chat datasets):
+Recommended QLoRA presets (validated via ``tests/test_train_student_qlora.py``)
+cover the following matrix of 4-bit configurations:
 
-================= ============================ =========== =============== ============= ========= ========= =========== ==========================================================
-Preset            Target GPU families          Quant type  Compute dtype   Double quant  LoRA rank LoRA α    LoRA dropout Notes
-================= ============================ =========== =============== ============= ========= ========= =========== ==========================================================
-ampere-balanced   NVIDIA Ampere/Hopper (RTX30+, nf4         bfloat16        True           64        128       0.05         Throughput-optimised baseline for cards with bf16 support.
-                  A100/A800, H100)
-turing-safe       NVIDIA Turing (RTX20/T4)      nf4         float16         True           32        64        0.10         Uses fp16 compute for wider compatibility.
-ada-memory        NVIDIA Ada (RTX40 24 GB+)     fp4         bfloat16        False          16        32        0.05         Aggressive memory saver; widens target modules for stability.
-================= ============================ =========== =============== ============= ========= ========= =========== ==========================================================
++-----------------+------------------------------------------+------------+----------------+--------------+-----------+---------+---------------+--------------------------------------------------------------------------+
+| Preset          | Target GPU families                      | Quant type | Compute dtype  | Double quant | LoRA rank | LoRA α  | LoRA dropout | Notes                                                                    |
++=================+==========================================+============+================+==============+===========+=========+===============+==========================================================================+
+| ampere-balanced | NVIDIA Ampere/Hopper (RTX30+/A100/A800/  | nf4        | bfloat16       | ✅            | 64        | 128     | 0.05          | Throughput baseline for bf16-capable cards.                              |
+|                 | H100)                                    |            |                |              |           |         |               |                                                                          |
++-----------------+------------------------------------------+------------+----------------+--------------+-----------+---------+---------------+--------------------------------------------------------------------------+
+| turing-safe     | NVIDIA Turing (RTX20/T4)                 | nf4        | float16        | ✅            | 32        | 64      | 0.10          | fp16 compute keeps compatibility with older GPUs.                        |
++-----------------+------------------------------------------+------------+----------------+--------------+-----------+---------+---------------+--------------------------------------------------------------------------+
+| ada-memory      | NVIDIA Ada (RTX40 24 GB+)                | fp4        | bfloat16       | ❌            | 16        | 32      | 0.05          | Minimises memory by extending adapters to attention + MLP projections.   |
++-----------------+------------------------------------------+------------+----------------+--------------+-----------+---------+---------------+--------------------------------------------------------------------------+
 
-Each preset can be selected via ``--qlora_preset`` (or through the UI) to
-pre-populate safe defaults for the adapter rank, alpha, dropout and
-quantisation behaviour.
+Each preset can be selected via ``--qlora_preset`` (or through the UI)
+to pre-populate safe defaults for adapter rank, alpha, dropout, target
+modules and quantisation behaviour.
 
 It is recommended to run this script on a machine with a GPU.  For
 QLoRA, you must have the ``bitsandbytes`` library installed.

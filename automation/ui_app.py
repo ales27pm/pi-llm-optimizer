@@ -48,6 +48,11 @@ class QLoRaPresetController:
         self._checkbox = app.query_one("#train-qlora", Checkbox)
         self._log = app.query_one(TextLog)
         self._presets = QLORA_PRESETS
+        self._details_label = app.query_one("#train-qlora-preset-details", Label)
+        self._default_message = (
+            "Select a preset to populate quantisation and LoRA hyperparameters."
+        )
+        self._details_label.update(self._default_message)
 
     def handle(self, value: Optional[str]) -> None:
         enabled = bool(value)
@@ -55,6 +60,7 @@ class QLoRaPresetController:
 
         if not value:
             self._log.write("Cleared QLoRA preset selection.")
+            self._details_label.update(self._default_message)
             return
 
         preset = self._presets.get(value)
@@ -62,11 +68,28 @@ class QLoRaPresetController:
             self._log.write(
                 f"[yellow]WARNING:[/] Unknown preset '{value}'; using defaults."
             )
+            self._details_label.update(
+                "Preset metadata missing; verify desktop_distill/train_student.py."
+            )
             return
 
+        target_modules = preset.target_modules or "q_proj,k_proj,v_proj,o_proj"
+        double_quant = "on" if preset.double_quant else "off"
         self._log.write(
-            f"Selected QLoRA preset '{value}' → {preset.target_gpus} • {preset.quant_type} • "
-            f"{preset.notes or 'see README for recommended hyperparameters'}"
+            f"Selected QLoRA preset '{value}' → {preset.target_gpus} • quant={preset.quant_type}/"
+            f"{preset.compute_dtype} • double-quant {double_quant} • LoRA r={preset.lora_rank} α={preset.lora_alpha} "
+            f"dropout={preset.lora_dropout} • targets={target_modules}"
+        )
+        self._details_label.update(
+            " | ".join(
+                [
+                    f"quant={preset.quant_type}/compute={preset.compute_dtype}",
+                    f"double-quant={double_quant}",
+                    f"LoRA r={preset.lora_rank} α={preset.lora_alpha} dropout={preset.lora_dropout}",
+                    f"targets={target_modules}",
+                    preset.notes or "See README for tuning notes",
+                ]
+            )
         )
 
 
@@ -193,6 +216,11 @@ class PipelineApp(App[None]):
                         if QLORA_PRESET_OPTIONS
                         else "Install training dependencies to load preset metadata"
                     ),
+                ),
+                Label(
+                    "Select a preset to populate quantisation and LoRA hyperparameters.",
+                    id="train-qlora-preset-details",
+                    classes="preset-details",
                 ),
                 Checkbox(label="Enable QLoRA", id="train-qlora"),
                 Input(placeholder="Seed (optional)", id="train-seed"),

@@ -1,7 +1,7 @@
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 import pytest
 
@@ -46,6 +46,7 @@ class DummyModel:
         self.gradient_checkpoint_enabled = False
         self.saved_paths: list[Path] = []
         self.trainable_parameters_logged = False
+        self.prepared_for_kbit = False
 
     def gradient_checkpointing_enable(self) -> None:
         self.gradient_checkpoint_enabled = True
@@ -99,84 +100,162 @@ def synthetic_dataset(tmp_path: Path) -> Path:
     return data_path
 
 
-def test_qlora_preset_execution(monkeypatch: pytest.MonkeyPatch, synthetic_dataset: Path, tmp_path: Path) -> None:
-    output_dir = tmp_path / "model"
-    dummy_model = DummyModel()
-    captured_adapter: dict[str, Any] = {}
+@pytest.fixture()
+def qlora_training_run(
+    monkeypatch: pytest.MonkeyPatch, synthetic_dataset: Path, tmp_path: Path
+):
+    """Return a callable that executes ``train_student.main`` for a preset."""
 
-    monkeypatch.setattr(train_student, "_prepare_tokenizer", lambda base_model: DummyTokenizer())
-    monkeypatch.setattr(train_student, "_build_data_pipeline", lambda dataset, tokenizer, max_length: (DummyDataset(dataset), lambda batch: batch))
+    def _runner(preset_name: str, *, bf16_supported: bool = True) -> Dict[str, Any]:
+        output_dir = tmp_path / f"model-{preset_name}"
+        dummy_model = DummyModel()
+        captured_adapter: Dict[str, Any] = {}
+        quant_snapshot: Dict[str, Any] = {}
 
-    def _assert_quant_config(kwargs: dict[str, Any]) -> None:
-        quant_config = kwargs.get("quantization_config")
-        assert quant_config is not None, "QLoRA preset must provide quantization_config"
-        assert quant_config.bnb_4bit_quant_type == "nf4"
-        assert quant_config.bnb_4bit_use_double_quant is True
-        assert quant_config.bnb_4bit_compute_dtype == train_student.torch.bfloat16
+        monkeypatch.setattr(
+            train_student,
+            "_prepare_tokenizer",
+            lambda base_model: DummyTokenizer(),
+        )
+        monkeypatch.setattr(
+            train_student,
+            "_build_data_pipeline",
+            lambda dataset, tokenizer, max_length: (
+                DummyDataset(dataset),
+                lambda batch: batch,
+            ),
+        )
 
-    def _fake_from_pretrained(base_model, torch_dtype=None, **kwargs):
-        _assert_quant_config(kwargs)
-        return dummy_model
+        def _fake_from_pretrained(base_model, torch_dtype=None, **kwargs):
+            quant_config = kwargs.get("quantization_config")
+            assert quant_config is not None, "QLoRA preset must provide quantization_config"
+            quant_snapshot["load_in_4bit"] = getattr(quant_config, "load_in_4bit", False)
+            quant_snapshot["quant_type"] = quant_config.bnb_4bit_quant_type
+            quant_snapshot["double_quant"] = quant_config.bnb_4bit_use_double_quant
+            quant_snapshot["compute_dtype"] = quant_config.bnb_4bit_compute_dtype
+            return dummy_model
 
-    monkeypatch.setattr(
-        train_student.AutoModelForCausalLM,
-        "from_pretrained",
-        staticmethod(_fake_from_pretrained),
+        monkeypatch.setattr(
+            train_student.AutoModelForCausalLM,
+            "from_pretrained",
+            staticmethod(_fake_from_pretrained),
+        )
+
+        def _prepare_for_kbit(model, use_gradient_checkpointing=True):
+            model.prepared_for_kbit = True
+            return model
+
+        monkeypatch.setattr(train_student, "prepare_model_for_kbit_training", _prepare_for_kbit)
+
+        def _capture_adapter(model, adapter_config):
+            captured_adapter["rank"] = adapter_config.r
+            captured_adapter["alpha"] = adapter_config.lora_alpha
+            captured_adapter["dropout"] = adapter_config.lora_dropout
+            captured_adapter["targets"] = tuple(adapter_config.target_modules)
+            return model
+
+        monkeypatch.setattr(train_student, "get_peft_model", _capture_adapter)
+        monkeypatch.setattr(train_student, "Trainer", DummyTrainer)
+        monkeypatch.setattr(train_student, "TrainingArguments", DummyTrainingArguments)
+
+        monkeypatch.setattr(train_student.torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(
+            train_student.torch.cuda,
+            "is_bf16_supported",
+            lambda: bf16_supported,
+        )
+
+        monkeypatch.setattr(
+            train_student,
+            "_parse_args",
+            lambda: argparse.Namespace(
+                dataset=synthetic_dataset,
+                base_model="dummy/base",
+                output_dir=output_dir,
+                num_epochs=1,
+                batch_size=1,
+                gradient_accumulation_steps=1,
+                learning_rate=2e-5,
+                use_dora=False,
+                qlora=True,
+                qlora_preset=preset_name,
+                seed=None,
+                logging_steps=None,
+                max_length=1024,
+                lr_scheduler_type="cosine",
+                warmup_steps=0,
+                lora_rank=8,
+                lora_alpha=32,
+                lora_dropout=0.05,
+                target_modules="q_proj,k_proj,v_proj,o_proj",
+            ),
+        )
+
+        DummyTrainer.last_instance = None
+
+        train_student.main()
+
+        assert DummyTrainer.last_instance is not None
+
+        return {
+            "adapter": captured_adapter,
+            "quant_config": quant_snapshot,
+            "model": dummy_model,
+            "trainer": DummyTrainer.last_instance,
+            "output_dir": output_dir,
+        }
+
+    return _runner
+
+
+@pytest.mark.parametrize("preset_name", sorted(train_student.QLORA_PRESETS.keys()))
+def test_qlora_presets_cover_matrix(qlora_training_run, preset_name: str) -> None:
+    result = qlora_training_run(preset_name)
+
+    preset = train_student.QLORA_PRESETS[preset_name]
+    quant = result["quant_config"]
+    adapter = result["adapter"]
+
+    assert quant["load_in_4bit"] is True
+    assert quant["quant_type"] == preset.quant_type
+    assert quant["double_quant"] is preset.double_quant
+
+    dtype_map = {
+        "bfloat16": train_student.torch.bfloat16,
+        "float16": train_student.torch.float16,
+    }
+    assert quant["compute_dtype"] == dtype_map[preset.compute_dtype]
+
+    assert adapter["rank"] == preset.lora_rank
+    assert adapter["alpha"] == pytest.approx(preset.lora_alpha)
+    assert adapter["dropout"] == pytest.approx(preset.lora_dropout)
+
+    expected_targets = tuple(
+        module.strip()
+        for module in (preset.target_modules or "q_proj,k_proj,v_proj,o_proj").split(",")
+        if module.strip()
     )
+    assert set(adapter["targets"]) == set(expected_targets)
 
-    monkeypatch.setattr(train_student, "prepare_model_for_kbit_training", lambda model, use_gradient_checkpointing=True: model)
+    dummy_model: DummyModel = result["model"]
+    trainer: DummyTrainer = result["trainer"]
+    output_dir: Path = result["output_dir"]
 
-    def _capture_adapter(model, adapter_config):
-        captured_adapter["rank"] = adapter_config.r
-        captured_adapter["alpha"] = adapter_config.lora_alpha
-        captured_adapter["dropout"] = adapter_config.lora_dropout
-        captured_adapter["targets"] = tuple(adapter_config.target_modules)
-        return model
-
-    monkeypatch.setattr(train_student, "get_peft_model", _capture_adapter)
-    monkeypatch.setattr(train_student, "Trainer", DummyTrainer)
-    monkeypatch.setattr(train_student, "TrainingArguments", DummyTrainingArguments)
-
-    monkeypatch.setattr(train_student.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(train_student.torch.cuda, "is_bf16_supported", lambda: True)
-
-    monkeypatch.setattr(
-        train_student,
-        "_parse_args",
-        lambda: argparse.Namespace(
-            dataset=synthetic_dataset,
-            base_model="dummy/base",
-            output_dir=output_dir,
-            num_epochs=1,
-            batch_size=1,
-            gradient_accumulation_steps=1,
-            learning_rate=2e-5,
-            use_dora=False,
-            qlora=True,
-            qlora_preset="ampere-balanced",
-            seed=None,
-            logging_steps=None,
-            max_length=1024,
-            lr_scheduler_type="cosine",
-            warmup_steps=0,
-            lora_rank=8,
-            lora_alpha=32,
-            lora_dropout=0.05,
-            target_modules="q_proj,k_proj,v_proj,o_proj",
-        ),
-    )
-
-    train_student.main()
-
-    assert DummyTrainer.last_instance is not None
-    assert DummyTrainer.last_instance.train_called is True
+    assert dummy_model.gradient_checkpoint_enabled is True
     assert dummy_model.trainable_parameters_logged is True
-    assert captured_adapter["rank"] == 64
-    assert captured_adapter["alpha"] == 128
-    assert captured_adapter["dropout"] == 0.05
-    assert set(captured_adapter["targets"]) == {"q_proj", "k_proj", "v_proj", "o_proj"}
+    assert dummy_model.prepared_for_kbit is True
+    assert trainer.train_called is True
     assert (output_dir / "adapter.bin").exists()
     assert (output_dir / "tokenizer.json").exists()
+
+
+def test_qlora_preset_warns_when_bf16_missing(qlora_training_run) -> None:
+    preset_name = "ampere-balanced"
+    with pytest.warns(RuntimeWarning):
+        result = qlora_training_run(preset_name, bf16_supported=False)
+
+    quant = result["quant_config"]
+    assert quant["compute_dtype"] == train_student.torch.float16
 
 
 def test_pipeline_command_includes_preset(tmp_path: Path) -> None:
