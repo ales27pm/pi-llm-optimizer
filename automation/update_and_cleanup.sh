@@ -40,7 +40,7 @@ fi
 
 CURRENT_STEP="python cache cleanup"
 log "Clearing Python cache directories..."
-find . -type d -name '__pycache__' -delete
+find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 
 CURRENT_STEP="temporary file cleanup"
 log "Removing stray temporary files..."

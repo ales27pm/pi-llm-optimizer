@@ -18,19 +18,12 @@ extends the capabilities already documented in `README.md` and
 - **Batch Labelling Improvements** – Teacher labelling now supports
   batched prompts, skip‑existing safeguards and structured JSON
   instructions.
+- **Dataset Blueprint CI Integration** – Automated dataset card
+  validation in GitHub Actions now blocks regressions and publishes
+  artifacts for downstream jobs.
 
 ## ⏱️ Near Term (0‑2 Sprints)
 
-- **Dataset Blueprint CI Integration** – Run
-  `dataset_card.py --validate` in CI to block regressions and publish
-  dataset card artifacts alongside training runs.
-  - [ ] Create a dedicated GitHub Actions workflow that invokes
-        `dataset/qf_corpus_blueprint/scripts/dataset_card.py --validate` on
-        every pull request touching the dataset.
-  - [ ] Archive the generated dataset card as a build artifact using the
-        workflow so downstream jobs can inspect the rendered card.
-  - [ ] Add a "Dataset CI" subsection to `README.md` describing the new
-        workflow and troubleshooting steps for failed validations.
 - **Expanded QLoRA Coverage** – Document recommended quantization
   configs, add regression tests for 4-bit adapters and expose presets in
   the UI and command builders.
