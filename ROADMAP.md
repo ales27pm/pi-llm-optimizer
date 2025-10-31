@@ -21,6 +21,10 @@ extends the capabilities already documented in `README.md` and
 - **Dataset Blueprint CI Integration** – Automated dataset card
   validation in GitHub Actions now blocks regressions and publishes
   artifacts for downstream jobs.
+- **Session Sync Orchestrator** – Added `automation/session_sync.py`,
+  manifest v2 with reusable sources, and manifest enforcement toggles
+  so `automation/update_and_cleanup.sh` regenerates guidance, runs dry
+  checks, and surfaces stray protocols automatically.
 
 ## ⏱️ Near Term (0‑2 Sprints)
 

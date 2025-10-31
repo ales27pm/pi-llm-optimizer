@@ -5,8 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-CURRENT_STEP="initialisation"
-
 log() {
   printf '[update_and_cleanup] %s\n' "$1"
 }
@@ -16,35 +14,39 @@ fail() {
   exit 1
 }
 
-trap 'log "ERROR: Script failed during ${CURRENT_STEP:-unknown step}"' ERR
-
-CURRENT_STEP="markdown discovery"
-log "Synchronizing markdown documentation (including roadmap and agent protocols)..."
-MARKDOWN_FILES=()
-while IFS= read -r file; do
-  MARKDOWN_FILES+=("$file")
-done < <(git ls-files '*.md' | sort)
-
-if [[ ${#MARKDOWN_FILES[@]} -gt 0 ]]; then
-  CURRENT_STEP="prettier availability"
-  if ! command -v npx >/dev/null 2>&1; then
-    fail "Node.js tooling (npx) is required to format markdown files. Install Node.js or run via CI tooling."
-  fi
-  if ! npx --yes prettier --version >/dev/null 2>&1; then
-    fail "Prettier is required to format markdown files. Install it globally or add it to the project dependencies."
-  fi
-
-  CURRENT_STEP="markdown formatting"
-  npx --yes prettier --log-level warn --write "${MARKDOWN_FILES[@]}" >/dev/null
+if ! command -v python3 >/dev/null 2>&1; then
+  fail "Python 3 is required to run the session synchronisation workflow."
 fi
 
-CURRENT_STEP="python cache cleanup"
-log "Clearing Python cache directories..."
-find . -type d -name '__pycache__' -prune -exec rm -rf {} +
+SESSION_SYNC_ARGS=("--repo-root" "${REPO_ROOT}")
 
-CURRENT_STEP="temporary file cleanup"
-log "Removing stray temporary files..."
-find . -type f \( -name '*.tmp' -o -name '*~' -o -name '.DS_Store' \) -delete
+if [[ "${SESSION_SYNC_CHECK:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--check")
+fi
+if [[ "${SESSION_SYNC_SKIP_FORMATTING:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--skip-formatting")
+fi
+if [[ "${SESSION_SYNC_SKIP_AGENT_SYNC:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--skip-agent-sync")
+fi
+if [[ "${SESSION_SYNC_SKIP_CLEANUP:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--skip-cleanup")
+fi
+if [[ "${SESSION_SYNC_RUN_NPM_LINT:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--run-npm-lint")
+fi
+if [[ "${SESSION_SYNC_RUN_PYTEST:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--run-pytest")
+fi
+if [[ "${SESSION_SYNC_ENFORCE_MANIFEST:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--enforce-manifest")
+fi
+if [[ "${SESSION_SYNC_VERBOSE:-0}" == "1" ]]; then
+  SESSION_SYNC_ARGS+=("--verbose")
+fi
 
-CURRENT_STEP="completed"
-log "Completed repository refresh."
+SESSION_SYNC_ARGS+=("$@")
+
+log "Executing automation.session_sync with arguments: ${SESSION_SYNC_ARGS[*]}"
+python3 -m automation.session_sync "${SESSION_SYNC_ARGS[@]}"
+log "Repository refresh complete."

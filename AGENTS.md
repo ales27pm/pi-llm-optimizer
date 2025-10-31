@@ -42,6 +42,8 @@ version: 1.0.0
 7.1 Ensure `automation/update_and_cleanup.sh` remains accurate. Extend it whenever new documentation or cache locations appear.
 7.2 Validate that automation can run non-interactively in CI environments.
 7.3 When adding new automation, document invocation patterns and integrate them into this protocol.
+7.4 Declare nested agent protocols in `automation/agents_manifest.json`. The update-and-cleanup workflow keeps the generated
+    `AGENTS.md` files in sync; modify the manifest instead of editing nested files directly.
 
 ## 8. Enforcement
 8.1 Any contribution that violates these directives must be revised before it can be accepted.

@@ -3,8 +3,8 @@ name: Dataset Card Validation
 on:
   pull_request:
     paths:
-      - 'dataset/**'
-      - '.github/workflows/dataset-card-validation.yml'
+      - "dataset/**"
+      - ".github/workflows/dataset-card-validation.yml"
   workflow_dispatch:
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11']
+        python-version: ["3.10", "3.11"]
 
     steps:
       - name: Checkout repository
