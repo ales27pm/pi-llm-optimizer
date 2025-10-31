@@ -44,6 +44,6 @@ jobs:
       - name: Upload dataset card artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dataset-card
+          name: dataset-card-${{ matrix.python-version }}
           path: build/dataset_card.json
           if-no-files-found: error
