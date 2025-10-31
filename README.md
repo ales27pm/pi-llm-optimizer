@@ -81,7 +81,7 @@ python desktop_distill/train_student.py \
     --base_model qwen/Qwen2.5-1.5B-Instruct \
     --output_dir trained_student \
     --use_dora \
-    --qlora \
+    --qlora_preset ampere-balanced \
     --num_epochs 1 \
     --batch_size 2 \
     --gradient_accumulation_steps 8 \
@@ -89,6 +89,22 @@ python desktop_distill/train_student.py \
 ```
 
 This will save a merged model in `trained_student/` ready for export.
+
+#### Recommended QLoRA presets
+
+Use the `--qlora_preset` flag (or select a preset in the Textual UI) to
+load a proven configuration that matches your GPU generation.  Presets
+apply tuned LoRA hyperparameters and 4‑bit quantisation settings while
+still allowing you to override individual flags if needed.
+
+| Preset           | Target GPU families                  | Quant type | Compute dtype | Double quant | LoRA rank | LoRA α | LoRA dropout | Notes                                                                 |
+| ---------------- | ------------------------------------ | ---------- | ------------- | ------------ | --------- | ------ | ------------ | --------------------------------------------------------------------- |
+| `ampere-balanced` | NVIDIA Ampere/Hopper (RTX30+/A100+)  | `nf4`      | `bfloat16`    | ✅           | 64        | 128    | 0.05         | Throughput-optimised baseline for bf16-capable cards.                 |
+| `turing-safe`     | NVIDIA Turing (RTX20/T4)              | `nf4`      | `float16`     | ✅           | 32        | 64     | 0.10         | Compatible with GPUs lacking bf16 compute support.                   |
+| `ada-memory`      | NVIDIA Ada (RTX40 24 GB+)             | `fp4`      | `bfloat16`    | ❌           | 16        | 32     | 0.05         | Lowest memory footprint; expands target modules for additional headroom. |
+
+If a preset requests bf16 compute on hardware that lacks support, the
+trainer automatically falls back to fp16 and logs a warning.
 
 ### 3. Export to GGUF
 
