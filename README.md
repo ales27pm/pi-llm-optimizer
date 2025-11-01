@@ -291,7 +291,10 @@ Prettier formatting, manifest-driven protocol generation, optional
 guidance lives under `automation/agent_sources/` and is compiled into
 tracked `AGENTS.md` files via `automation/agents_manifest.json`.
 Adjust the manifest instead of editing generated files by hand so
-updates remain reproducible across sessions.
+updates remain reproducible across sessions. The workflow also
+regenerates `ROADMAP.md` from `automation/roadmap.yaml` before running
+Prettier, so contributors should edit the YAML source when reprioritising
+workstreams.
 
 Environment toggles (set as `SESSION_SYNC_*` variables) map directly to
 the Python orchestrator:

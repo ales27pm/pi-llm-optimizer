@@ -1,0 +1,225 @@
+metadata:
+  title: "Project Roadmap"
+  intro: |
+    The roadmap captures the team priorities for Pi‑LLM Optimizer as we
+    iterate on the end‑to‑end distillation, quantization and deployment
+    experience. Items are grouped by timeframe and focus on work that
+    extends the capabilities already documented in `README.md` and
+    `AGENTS.md`.
+sections:
+  - heading: "✅ Recently Landed"
+    items:
+      - title: "Expanded QLoRA Coverage"
+        description: >-
+          Documented the validated preset matrix, hardened regression coverage
+          and exposed operator presets inside the automation UI.
+        tasks:
+          - summary: >-
+              Capture a matrix of tested quantization settings in
+              `desktop_distill/train_student.py` docstrings and mirror it in
+              `README.md`.
+            status: done
+          - summary: >-
+              Extend the pytest suite with fixtures that exercise QLoRA
+              adapters end-to-end using a small synthetic dataset.
+            status: done
+          - summary: >-
+              Add preset dropdowns to `automation/ui_app.py` so operators can
+              select proven QLoRA configurations without manual flag editing.
+            status: done
+      - title: "Dataset Blueprint Tooling"
+        description: >-
+          Added the dataset card generator and JSONL utilities so every corpus
+          ships with reproducible documentation.
+      - title: "Automation Command Builders"
+        description: >-
+          Unified CLI assembly for labelling, training, export and benchmarking
+          through `automation/pipeline_ops.py` and the Textual dashboard.
+      - title: "UI Parity with CLI"
+        description: >-
+          Removed stale gradient-checkpoint flags and ensured the Textual panels
+          mirror the authoritative script options.
+      - title: "Batch Labelling Improvements"
+        description: >-
+          Teacher labelling now supports batched prompts, skip-existing safeguards
+          and structured JSON instructions.
+      - title: "Dataset Blueprint CI Integration"
+        description: >-
+          Automated dataset card validation in GitHub Actions now blocks
+          regressions and publishes artifacts for downstream jobs.
+      - title: "Session Sync Orchestrator"
+        description: >-
+          Added `automation/session_sync.py`, manifest v2 with reusable sources,
+          and manifest enforcement toggles for the @codex automation that curates
+          this repository. The `automation/update_and_cleanup.sh` wrapper keeps
+          that internal agent in sync by regenerating guidance, running dry checks
+          and surfacing stray protocols automatically, and must run before every
+          @codex coding session concludes (i.e. at the end of each individual
+          request/response cycle).
+  - heading: "⏱️ Near Term (0‑2 Sprints)"
+    items:
+      - title: "Remote Model Export UX"
+        description: >-
+          Add progress reporting and richer error diagnostics when resolving remote
+          HuggingFace repos during GGUF export.
+        tasks:
+          - summary: >-
+              Integrate download progress callbacks into
+              `desktop_distill/export_gguf.py` and surface them in CLI logs.
+            status: todo
+          - summary: >-
+              Implement structured exception handling that outputs actionable
+              remediation hints when remote resolution fails.
+            status: todo
+          - summary: >-
+              Write integration tests under `tests/` that mock failed downloads and
+              assert user-friendly messages are emitted.
+            status: todo
+      - title: "Benchmark Dashboards"
+        description: >-
+          Emit structured metrics from `rpi4/bench/pi_bench.py` and surface summaries
+          within the Textual UI.
+        tasks:
+          - summary: >-
+              Refactor `rpi4/bench/pi_bench.py` to emit JSON summaries alongside CSV
+              output for consumption by dashboards.
+            status: todo
+          - summary: >-
+              Update `automation/ui_app.py` to visualize recent benchmark runs in a
+              dedicated panel with trend lines.
+            status: todo
+          - summary: >-
+              Document how to launch the dashboard mode inside `automation/ui_app.tcss`/
+              `README.md`, including expected data refresh cadence.
+            status: todo
+  - heading: "🔭 Mid Term (Quarter)"
+    items:
+      - title: "Pipeline Profiles"
+        description: >-
+          Ship reusable YAML profiles that capture common end-to-end flows (e.g.
+          TinyLlama tutoring, Qwen bilingual assistant) and hydrate the command
+          builders automatically.
+        tasks:
+          - summary: >-
+              Define a YAML schema (with JSON Schema validation) covering
+              teacher/student ids, dataset sources and automation presets.
+            status: todo
+          - summary: >-
+              Implement profile loading in `automation/pipeline_ops.py`, falling back to
+              existing CLI arguments when profiles are absent.
+            status: todo
+          - summary: >-
+              Add profile selection controls to the Textual UI and document sample
+              profiles under `automation/profiles/`.
+            status: todo
+      - title: "Multi-Node Training Experiments"
+        description: >-
+          Investigate DeepSpeed or FSDP for large teacher fine-tuning while keeping the
+          student path lightweight.
+        tasks:
+          - summary: >-
+              Prototype a DeepSpeed configuration for the teacher model using a
+              constrained dataset to validate scaling assumptions.
+            status: todo
+          - summary: >-
+              Benchmark FSDP against LoRA-only baselines and summarize token throughput in
+              `CODEBASE_ANALYSIS.md`.
+            status: todo
+          - summary: >-
+              Document hardware prerequisites and trade-offs for each strategy in
+              `README.md`'s advanced training section.
+            status: todo
+      - title: "Enhanced Dataset Tooling"
+        description: >-
+          Add schema validation helpers for tool-augmented conversations and surface
+          dialect coverage warnings in the Textual UI.
+        tasks:
+          - summary: >-
+              Extend `dataset/qf_corpus_blueprint/scripts/jsonl_utils.py` with schema
+              validation hooks that can be shared by CLI and tests.
+            status: todo
+          - summary: >-
+              Render dialect coverage summaries in the Textual UI with warning banners when
+              corpora fall below thresholds.
+            status: todo
+          - summary: >-
+              Author documentation for new validation rules, including remediation suggestions,
+              in the dataset blueprint README.
+            status: todo
+      - title: "Pi Runtime Packaging"
+        description: >-
+          Produce a Debian package that installs the llama.cpp runtime, helper scripts and
+          systemd units for background decoding services.
+        tasks:
+          - summary: >-
+              Create `rpi4/package/` with Debian packaging metadata and reproducible build
+              scripts.
+            status: todo
+          - summary: >-
+              Automate package builds via GitHub Actions, attaching `.deb` artifacts to releases.
+            status: todo
+          - summary: >-
+              Provide installation and service management instructions in the Raspberry Pi setup guide.
+            status: todo
+  - heading: "🧭 Long Term (6+ Months)"
+    items:
+      - title: "Model Zoo Publishing"
+        description: >-
+          Host a curated catalog of distilled models with reproducible dataset cards, training configs and GGUF exports.
+        tasks:
+          - summary: >-
+              Stand up a static site (e.g. GitHub Pages) fed from a structured `model_catalog.json`
+              maintained in-repo.
+            status: todo
+          - summary: >-
+              Automate GGUF upload and metadata publishing as part of release workflows.
+            status: todo
+          - summary: >-
+              Provide dataset card templates and release checklists for new models within the documentation site.
+            status: todo
+      - title: "Edge Accelerator Support"
+        description: >-
+          Prototype Metal / CoreML export paths for Apple Silicon along with Vulkan backends for other ARM devices.
+        tasks:
+          - summary: >-
+              Evaluate llama.cpp Metal builds and document required flags for macOS/iOS targets.
+            status: todo
+          - summary: >-
+              Investigate Vulkan compute support on Raspberry Pi-class devices and capture findings in `CODEBASE_ANALYSIS.md`.
+            status: todo
+          - summary: >-
+              Add abstraction layers in the runtime scripts so accelerator selection is configurable per device profile.
+            status: todo
+      - title: "Data Privacy Tooling"
+        description: >-
+          Integrate automated redaction checks and audit logging for sensitive training data.
+        tasks:
+          - summary: >-
+              Incorporate PII redaction passes into the dataset labelling pipeline with opt-in CLI flags.
+            status: todo
+          - summary: >-
+              Store redaction reports alongside dataset cards for auditing.
+            status: todo
+          - summary: >-
+              Establish governance documentation describing privacy review expectations for contributors.
+            status: todo
+      - title: "Community Contribution Path"
+        description: >-
+          Document contribution templates and governance for external dataset and model submissions.
+        tasks:
+          - summary: >-
+              Draft contribution templates for datasets, training recipes and runtime scripts under `.github/ISSUE_TEMPLATE/`.
+            status: todo
+          - summary: >-
+              Define review checklists and escalation paths in `CONTRIBUTING.md`.
+            status: todo
+          - summary: >-
+              Host quarterly community sync notes summarizing roadmap changes and published contributions.
+            status: todo
+  - heading: "📌 How to Contribute"
+    bullets:
+      - "Track roadmap issues under the `#roadmap` GitHub label."
+      - "Propose changes via pull requests that link to the relevant roadmap item."
+      - >-
+        Keep documentation (`README.md`, `AGENTS.md`, dataset cards) updated as features land so the roadmap stays an accurate
+        forward-looking plan.
