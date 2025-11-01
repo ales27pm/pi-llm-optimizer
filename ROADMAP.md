@@ -36,8 +36,9 @@ extends the capabilities already documented in `README.md` and
   for the @codex automation that curates this repository. The
   `automation/update_and_cleanup.sh` wrapper keeps that internal agent in
   sync by regenerating guidance, running dry checks and surfacing stray
-  protocols automatically, and is mandated at the end of every @codex
-  session.
+  protocols automatically, and must run before every @codex coding
+  session concludes (i.e. at the end of each individual request/response
+  cycle).
 
 ## ⏱️ Near Term (0‑2 Sprints)
 
