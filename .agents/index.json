@@ -1,0 +1,22 @@
+{
+  "$schema": ".agents/schemas/index.schema.json",
+  "version": 1,
+  "generated_at": "scan",
+  "modules": [
+    {
+      "name": "core",
+      "path": "src/core",
+      "tasks_file": ".agents/modules/core/tasks.json"
+    }
+  ],
+  "docs": [
+    {
+      "file": "VISION.md",
+      "title": "Vision"
+    },
+    {
+      "file": "OVERVIEW.md",
+      "title": "Overview"
+    }
+  ]
+}

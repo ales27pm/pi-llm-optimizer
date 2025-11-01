@@ -1,0 +1,44 @@
+{
+  "$id": "https://local.schemas/index.schema.json",
+  "type": "object",
+  "required": ["version", "generated_at", "modules", "docs"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "generated_at": {"type": "string"},
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "tasks_file"],
+        "properties": {
+          "name": {"type": "string"},
+          "path": {"type": "string"},
+          "tasks_file": {"type": "string"},
+          "docs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["file"],
+              "properties": {
+                "file": {"type": "string"},
+                "anchor": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "docs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {"type": "string"},
+          "title": {"type": "string"}
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
