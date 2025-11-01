@@ -1,0 +1,32 @@
+{
+  "$schema": ".agents/schemas/tasks.schema.json",
+  "module": "core",
+  "updated_at": "__BOOTSTRAP__",
+  "tasks": [
+    {
+      "id": "core:bootstrap-structure",
+      "title": "Establish validated agent control plane and schemas",
+      "status": "todo",
+      "acceptance": [
+        "All `.agents/schemas/*.json` are present and validate corresponding files",
+        "`scripts/agent_post_session_update.sh` passes on a clean repo",
+        "CI pre-push/pipeline validates JSON and fails on drift"
+      ],
+      "impl": {
+        "steps": [
+          "Create JSON Schemas and integrate validation in post-session script",
+          "Wire bootstrap + scan flow to (re)generate index safely",
+          "Add idempotent guards and retries to commit/push"
+        ]
+      },
+      "refs": [
+        {"file": ".agents/schemas/index.schema.json"},
+        {"file": "scripts/agent_post_session_update.sh"}
+      ],
+      "notes": [],
+      "next_notes": [
+        "After this task, enable module discovery for additional languages and create corresponding `tasks.json` files automatically."
+      ]
+    }
+  ]
+}

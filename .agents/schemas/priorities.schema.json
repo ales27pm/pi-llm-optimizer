@@ -1,0 +1,34 @@
+{
+  "$id": "https://local.schemas/priorities.schema.json",
+  "type": "object",
+  "required": ["version", "updated_at", "policy", "queue"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string"},
+    "policy": {
+      "type": "object",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {"type": "string"},
+        "tie_breakers": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "queue": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task_id", "title", "file", "priority", "status"],
+        "properties": {
+          "task_id": {"type": "string"},
+          "title": {"type": "string"},
+          "file": {"type": "string"},
+          "priority": {"type": "integer"},
+          "status": {"type": "string", "enum": ["todo", "doing", "done", "blocked"]},
+          "blocked_by": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
