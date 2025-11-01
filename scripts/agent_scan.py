@@ -65,8 +65,8 @@ def discover_modules():
             mods.append({"name": name, "path": str(p), "tasks_file": f".agents/modules/{name}/tasks.json"})
             seen.add(name)
     if not mods:
-        # fallback core module
-        mods = [{"name":"core","path":"src/core","tasks_file":".agents/modules/core/tasks.json"}]
+        # fallback core module anchored to scripts directory
+        mods = [{"name": "core", "path": "scripts", "tasks_file": ".agents/modules/core/tasks.json"}]
     return mods
 
 def build_index(existing=None):

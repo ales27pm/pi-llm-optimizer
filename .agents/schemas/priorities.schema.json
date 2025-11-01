@@ -4,7 +4,7 @@
   "required": ["version", "updated_at", "policy", "queue"],
   "properties": {
     "$schema": {"type": "string"},
-    "version": {"type": "integer"},
+    "version": {"type": "integer", "minimum": 1},
     "updated_at": {"type": "string"},
     "policy": {
       "type": "object",

@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 echo "[bootstrap] Ensuring dependencies..."
 if ! command -v jq >/dev/null 2>&1; then
   echo "[ERR] 'jq' is not installed. Please install it to continue." >&2
-  echo "       Debian/Ubuntu: sudo apt-get install jq" >&2
+  echo "       Debian/Ubuntu: apt-get install jq   (prepend sudo if required)" >&2
   echo "       macOS (Homebrew): brew install jq" >&2
   exit 1
 fi
@@ -29,7 +29,7 @@ write_if_missing() {
 }
 
 # Touch machine plane if missing
-write_if_missing ".agents/index.json" '{"$schema":".agents/schemas/index.schema.json","version":1,"generated_at":"bootstrap","modules":[{"name":"core","path":"src/core","tasks_file":".agents/modules/core/tasks.json","docs":[{"file":"OVERVIEW.md"},{"file":"VISION.md"}]}],"docs":[{"file":"VISION.md"},{"file":"OVERVIEW.md"}]}'
+write_if_missing ".agents/index.json" '{"$schema":".agents/schemas/index.schema.json","version":1,"generated_at":"bootstrap","modules":[{"name":"core","path":"scripts","tasks_file":".agents/modules/core/tasks.json","docs":[{"file":"OVERVIEW.md"},{"file":"VISION.md"}]}],"docs":[{"file":"VISION.md"},{"file":"OVERVIEW.md"}]}'
 write_if_missing ".agents/priorities.json" '{"$schema":".agents/schemas/priorities.schema.json","version":1,"updated_at":"bootstrap","policy":{"strategy":"critical_path_first","tie_breakers":["dependency_depth","risk","value"]},"queue":[{"task_id":"core:bootstrap-structure","title":"Establish validated agent control plane and schemas","file":".agents/modules/core/tasks.json","priority":100,"status":"todo"}]}'
 write_if_missing ".agents/modules/core/tasks.json" '{"$schema":".agents/schemas/tasks.schema.json","module":"core","updated_at":"bootstrap","tasks":[]}'
 

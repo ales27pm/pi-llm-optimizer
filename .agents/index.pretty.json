@@ -5,7 +5,7 @@
   "modules": [
     {
       "name": "core",
-      "path": "src/core",
+      "path": "scripts",
       "tasks_file": ".agents/modules/core/tasks.json"
     }
   ],

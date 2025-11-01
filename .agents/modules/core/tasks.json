@@ -20,8 +20,8 @@
         ]
       },
       "refs": [
-        {"file": ".agents/schemas/index.schema.json", "line": 1, "end_line": 9999},
-        {"file": "scripts/agent_post_session_update.sh", "line": 1, "end_line": 9999}
+        {"file": ".agents/schemas/index.schema.json"},
+        {"file": "scripts/agent_post_session_update.sh"}
       ],
       "notes": [],
       "next_notes": [
