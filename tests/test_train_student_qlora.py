@@ -223,17 +223,20 @@ def synthetic_dataset(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def qlora_training_run(
-    monkeypatch: pytest.MonkeyPatch, synthetic_dataset: Path, tmp_path: Path
-) -> Callable[..., Dict[str, Any]]:
-    """Return a callable that executes ``train_student.main`` for a preset."""
+def qlora_patch_suite(
+    monkeypatch: pytest.MonkeyPatch, synthetic_dataset: Path
+) -> Callable[..., None]:
+    """Return a callable that wires train_student dependencies for a run."""
 
-    def _runner(preset_name: str, *, bf16_supported: bool = True) -> Dict[str, Any]:
-        output_dir = tmp_path / f"model-{preset_name}"
-        dummy_model = DummyModel()
-        captured_adapter: Dict[str, Any] = {}
-        quant_snapshot: Dict[str, Any] = {}
-
+    def _apply(
+        *,
+        dummy_model: "DummyModel",
+        quant_snapshot: Dict[str, Any],
+        captured_adapter: Dict[str, Any],
+        bf16_supported: bool,
+        output_dir: Path,
+        preset_name: str,
+    ) -> None:
         _patch_tokenizer(monkeypatch)
         _patch_data_pipeline(monkeypatch)
         _patch_model_loader(monkeypatch, dummy_model, quant_snapshot)
@@ -244,6 +247,30 @@ def qlora_training_run(
         _patch_arg_parser(
             monkeypatch,
             dataset_path=synthetic_dataset,
+            output_dir=output_dir,
+            preset_name=preset_name,
+        )
+
+    return _apply
+
+
+@pytest.fixture()
+def qlora_training_run(
+    qlora_patch_suite: Callable[..., None], tmp_path: Path
+) -> Callable[..., Dict[str, Any]]:
+    """Return a callable that executes ``train_student.main`` for a preset."""
+
+    def _runner(preset_name: str, *, bf16_supported: bool = True) -> Dict[str, Any]:
+        output_dir = tmp_path / f"model-{preset_name}"
+        dummy_model = DummyModel()
+        captured_adapter: Dict[str, Any] = {}
+        quant_snapshot: Dict[str, Any] = {}
+
+        qlora_patch_suite(
+            dummy_model=dummy_model,
+            quant_snapshot=quant_snapshot,
+            captured_adapter=captured_adapter,
+            bf16_supported=bf16_supported,
             output_dir=output_dir,
             preset_name=preset_name,
         )
