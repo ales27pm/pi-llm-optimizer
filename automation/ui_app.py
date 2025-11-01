@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -32,6 +32,9 @@ from .pipeline_ops import (
     QLORA_PRESETS,
 )
 
+if TYPE_CHECKING:
+    from desktop_distill.train_student import QLoRAPreset
+
 APP_CSS_PATH = Path(__file__).with_name("ui_app.tcss")
 
 
@@ -39,6 +42,11 @@ QLORA_PRESET_OPTIONS = [
     (preset.label, name)
     for name, preset in sorted(QLORA_PRESETS.items(), key=lambda item: item[0])
 ]
+
+
+DEFAULT_PRESET_DETAILS = "Select a preset to populate quantisation and LoRA hyperparameters."
+MISSING_PRESET_DETAILS = "Preset metadata missing; verify desktop_distill/train_student.py."
+DEFAULT_TARGET_MODULES = "q_proj,k_proj,v_proj,o_proj"
 
 
 class QLoRaPresetController:
@@ -49,10 +57,7 @@ class QLoRaPresetController:
         self._log = app.query_one(TextLog)
         self._presets = QLORA_PRESETS
         self._details_label = app.query_one("#train-qlora-preset-details", Label)
-        self._default_message = (
-            "Select a preset to populate quantisation and LoRA hyperparameters."
-        )
-        self._details_label.update(self._default_message)
+        self._details_label.update(DEFAULT_PRESET_DETAILS)
 
     def handle(self, value: Optional[str]) -> None:
         enabled = bool(value)
@@ -60,7 +65,7 @@ class QLoRaPresetController:
 
         if not value:
             self._log.write("Cleared QLoRA preset selection.")
-            self._details_label.update(self._default_message)
+            self._details_label.update(DEFAULT_PRESET_DETAILS)
             return
 
         preset = self._presets.get(value)
@@ -68,29 +73,47 @@ class QLoRaPresetController:
             self._log.write(
                 f"[yellow]WARNING:[/] Unknown preset '{value}'; using defaults."
             )
-            self._details_label.update(
-                "Preset metadata missing; verify desktop_distill/train_student.py."
-            )
+            self._details_label.update(MISSING_PRESET_DETAILS)
             return
 
-        target_modules = preset.target_modules or "q_proj,k_proj,v_proj,o_proj"
-        double_quant = "on" if preset.double_quant else "off"
-        self._log.write(
-            f"Selected QLoRA preset '{value}' → {preset.target_gpus} • quant={preset.quant_type}/"
-            f"{preset.compute_dtype} • double-quant {double_quant} • LoRA r={preset.lora_rank} α={preset.lora_alpha} "
-            f"dropout={preset.lora_dropout} • targets={target_modules}"
-        )
-        self._details_label.update(
-            " | ".join(
-                [
-                    f"quant={preset.quant_type}/compute={preset.compute_dtype}",
-                    f"double-quant={double_quant}",
-                    f"LoRA r={preset.lora_rank} α={preset.lora_alpha} dropout={preset.lora_dropout}",
-                    f"targets={target_modules}",
-                    preset.notes or "See README for tuning notes",
-                ]
+        warning, log_message, details_message = self._build_messages(value, preset)
+        if warning:
+            self._log.write(warning)
+        self._log.write(log_message)
+        self._details_label.update(details_message)
+
+    def _build_messages(
+        self, name: str, preset: "QLoRAPreset"
+    ) -> tuple[Optional[str], str, str]:
+        """Return log and detail strings plus an optional warning for a preset."""
+
+        target_modules = preset.target_modules
+        warning: Optional[str] = None
+        if not target_modules:
+            warning = (
+                f"[yellow]WARNING:[/] Preset '{name}' is missing target_modules metadata; "
+                f"defaulting to {DEFAULT_TARGET_MODULES}."
             )
+            target_modules = DEFAULT_TARGET_MODULES
+
+        double_quant = "on" if preset.double_quant else "off"
+        log_message = (
+            f"Selected QLoRA preset '{name}' → {preset.target_gpus} • "
+            f"quant={preset.quant_type}/{preset.compute_dtype} • "
+            f"double-quant {double_quant} • "
+            f"LoRA r={preset.lora_rank} α={preset.lora_alpha} dropout={preset.lora_dropout} • "
+            f"targets={target_modules}"
         )
+        details_message = " | ".join(
+            [
+                f"quant={preset.quant_type}/compute={preset.compute_dtype}",
+                f"double-quant={double_quant}",
+                f"LoRA r={preset.lora_rank} α={preset.lora_alpha} dropout={preset.lora_dropout}",
+                f"targets={target_modules}",
+                preset.notes or "See README for tuning notes",
+            ]
+        )
+        return warning, log_message, details_message
 
 
 class PipelineApp(App[None]):
