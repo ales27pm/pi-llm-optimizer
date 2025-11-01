@@ -2,3 +2,4 @@ node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
+automation/.session_sync_venv/

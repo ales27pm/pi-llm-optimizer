@@ -28,14 +28,18 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import time
+import traceback
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, Optional, Sequence
+from typing import Dict, Iterable, Iterator, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,104 @@ def _get_snapshot_download():
         )
     return snapshot_download
 
+class ModelResolutionError(RuntimeError):
+    """Raised when a remote HuggingFace repository cannot be resolved."""
+
+    def __init__(self, repo_id: str, reason: str, *, hints: Sequence[str]) -> None:
+        self.repo_id = repo_id
+        self.reason = reason
+        self.hints = tuple(hints)
+        hint_block = "\n".join(f"  - {hint}" for hint in self.hints)
+        message = (
+            f"Failed to resolve HuggingFace repository '{repo_id}': {reason}\n"
+            f"Remediation steps:\n{hint_block}"
+        )
+        super().__init__(message)
+
+
+@dataclass
+class _ProgressState:
+    last_fraction: float = -0.1
+    last_logged_bytes: int = 0
+
+
+class DownloadProgressReporter:
+    """Bridge huggingface_hub progress updates into structured logs."""
+
+    def __init__(self, repo_id: str, *, min_fraction: float = 0.05, min_bytes: int = 10_000_000) -> None:
+        self.repo_id = repo_id
+        self._min_fraction = min_fraction
+        self._min_bytes = min_bytes
+        self._states: Dict[str, _ProgressState] = {}
+
+    def make_tqdm_class(self):
+        try:
+            from tqdm.auto import tqdm as base_tqdm  # type: ignore
+        except ImportError:  # pragma: no cover - tqdm is an optional dependency
+            logger.debug("tqdm is not available; download progress logging disabled")
+            return None
+
+        reporter = self
+
+        class LoggingTqdm(base_tqdm):  # type: ignore[misc]
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                reporter._start(self.desc or "download", self.total)
+
+            def update(self, n=1):  # type: ignore[override]
+                super().update(n)
+                reporter._progress(self.desc or "download", self.n, self.total)
+
+            def close(self):  # type: ignore[override]
+                try:
+                    reporter._complete(self.desc or "download", self.n, self.total)
+                finally:
+                    super().close()
+
+        return LoggingTqdm
+
+    def _state_for(self, target: str) -> _ProgressState:
+        if target not in self._states:
+            self._states[target] = _ProgressState()
+        return self._states[target]
+
+    def _log(self, event: str, target: str, downloaded: int, total: Optional[int], *, extra: Optional[dict] = None) -> None:
+        payload: Dict[str, object] = {
+            "event": event,
+            "repo": self.repo_id,
+            "target": target,
+            "downloaded_bytes": downloaded,
+            "timestamp": time.time(),
+        }
+        if total is not None:
+            payload["total_bytes"] = total
+            if total:
+                payload["percent"] = round(downloaded / total * 100, 2)
+        else:
+            payload["total_bytes"] = None
+        if extra:
+            payload |= extra
+        logger.info(json.dumps(payload, sort_keys=True))
+
+    def _start(self, target: str, total: Optional[int]) -> None:
+        self._log("download_start", target, 0, total)
+
+    def _progress(self, target: str, downloaded: int, total: Optional[int]) -> None:
+        state = self._state_for(target)
+        should_log = False
+        if total:
+            fraction = downloaded / total
+            if fraction >= state.last_fraction + self._min_fraction or downloaded == total:
+                state.last_fraction = fraction
+                should_log = True
+        elif downloaded - state.last_logged_bytes >= self._min_bytes or downloaded == total:
+            should_log = True
+        if should_log:
+            state.last_logged_bytes = downloaded
+            self._log("download_progress", target, downloaded, total)
+
+    def _complete(self, target: str, downloaded: int, total: Optional[int]) -> None:
+        self._log("download_complete", target, downloaded, total)
 
 @contextmanager
 def _resolve_model_path(model: str, *, revision: Optional[str], token: Optional[str]) -> Iterator[Path]:
@@ -104,17 +206,86 @@ def _resolve_model_path(model: str, *, revision: Optional[str], token: Optional[
         return
 
     snapshot_download = _get_snapshot_download()
+    reporter = DownloadProgressReporter(model)
+    tqdm_class = reporter.make_tqdm_class()
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         download_dir = Path(tmp_dir) / "model"
         download_dir.mkdir(parents=True, exist_ok=True)
-        snapshot_download(
-            repo_id=model,
-            revision=revision,
-            token=token,
-            local_dir=str(download_dir),
-            local_dir_use_symlinks=False,
-        )
+        snapshot_kwargs = {
+            "repo_id": model,
+            "revision": revision,
+            "token": token,
+            "local_dir": str(download_dir),
+            "local_dir_use_symlinks": False,
+        }
+        if tqdm_class is not None:
+            snapshot_kwargs["tqdm_class"] = tqdm_class
+
+        try:
+            snapshot_download(**snapshot_kwargs)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:  # pragma: no cover - exercised via dedicated tests
+            raise _convert_snapshot_error(model, exc, revision=revision) from exc
+
         yield download_dir
+
+
+def _convert_snapshot_error(model: str, exc: Exception, *, revision: Optional[str]) -> ModelResolutionError:
+    """Convert huggingface_hub exceptions into actionable guidance."""
+
+    reason = str(exc) or exc.__class__.__name__
+    hints: list[str] = [
+        "Verify the model id on https://huggingface.co and ensure it is spelled correctly.",
+        "If the repository is private, provide an access token via --hf-token or the HF_TOKEN environment variable.",
+        "Confirm your network/proxy settings allow outbound HTTPS connections to huggingface.co.",
+    ]
+
+    try:
+        from huggingface_hub.utils import (
+            EntryNotFoundError,
+            HfHubHTTPError,
+            RepositoryNotFoundError,
+            RevisionNotFoundError,
+        )
+    except ImportError:  # pragma: no cover - huggingface_hub already imported earlier
+        EntryNotFoundError = HfHubHTTPError = RepositoryNotFoundError = RevisionNotFoundError = ()  # type: ignore[assignment]
+
+    try:
+        if isinstance(exc, RepositoryNotFoundError):  # type: ignore[arg-type]
+            reason = "Repository was not found or access is denied."
+            hints.insert(0, "Check that the repository exists and that your account has accepted any gating terms.")
+        elif isinstance(exc, RevisionNotFoundError):  # type: ignore[arg-type]
+            rev = revision or "<default>"
+            reason = f"Revision '{rev}' does not exist in the repository."
+            hints.insert(0, "Use --revision to target a valid branch, tag or commit hash.")
+        elif isinstance(exc, EntryNotFoundError):  # type: ignore[arg-type]
+            reason = "The repository is missing expected model files."
+            hints.insert(0, "Ensure the repository contains the model weights and configuration files.")
+        elif isinstance(exc, HfHubHTTPError):  # type: ignore[arg-type]
+            if status_code := getattr(getattr(exc, "response", None), "status_code", None):
+                reason = f"HTTP {status_code} error while downloading the repository."
+            hints.append("Retry the export; transient HuggingFace outages can cause HTTP errors.")
+    except Exception:  # pragma: no cover - defensive logging of unexpected errors
+        logger.error(
+            "Unexpected exception while converting snapshot error for model '%s' (revision: %s):\n%s",
+            model,
+            revision,
+            traceback.format_exc(),
+        )
+        raise
+
+    payload = {
+        "event": "model_resolution",
+        "status": "error",
+        "repo": model,
+        "reason": reason,
+        "exception_type": exc.__class__.__name__,
+    }
+    logger.error(json.dumps(payload, sort_keys=True))
+
+    return ModelResolutionError(model, reason, hints=hints)
 
 
 def _determine_converter_dir(provided: Optional[Path]) -> Path:

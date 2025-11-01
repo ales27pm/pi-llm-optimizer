@@ -122,7 +122,10 @@ Convert the merged model to GGUF and quantize it to the desired
 bit‑width (default `q4_k_m`).  Remote HuggingFace models can be
 downloaded on demand, and private repositories are supported via
 `--hf-token` or the `HF_TOKEN`/`HUGGINGFACEHUB_API_TOKEN` environment
-variables:
+variables.  The exporter emits structured JSON progress updates while
+weights stream down, and failed resolutions surface remediation hints in
+the CLI logs so you can fix permissions, revision names or networking
+issues without diving into stack traces:
 
 ```bash
 python desktop_distill/export_gguf.py \
@@ -283,6 +286,12 @@ To invoke the workflow manually, run:
 ```bash
 ./automation/update_and_cleanup.sh
 ```
+
+The wrapper provisions an isolated Python environment under
+`automation/.session_sync_venv` on first run and installs the
+dependencies listed in `automation/requirements.txt`. Subsequent
+invocations reuse that environment; delete the directory if it becomes
+corrupted to trigger a clean rebuild.
 
 The wrapper delegates to `automation/session_sync.py`, which coordinates
 Prettier formatting, manifest-driven protocol generation, optional
