@@ -50,12 +50,16 @@ def test_benchmark_command_optional_fields(tmp_path: Path) -> None:
         iterations=5,
         min_tokps=0.42,
         csv_path=tmp_path / "results.csv",
+        json_path=tmp_path / "history.json",
+        json_limit=10,
     )
 
     command = config.build_command(python_executable="python")
 
     assert "--min-tokps" in command
     assert "--csv" in command
+    assert "--json" in command
+    assert "--json-limit" in command
 
 
 def test_export_includes_token_when_provided(tmp_path: Path) -> None:

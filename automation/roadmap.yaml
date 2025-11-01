@@ -73,24 +73,33 @@ sections:
           and surfacing stray protocols automatically, and must run before every
           @codex coding session concludes (i.e. at the end of each individual
           request/response cycle).
-  - heading: "⏱️ Near Term (0‑2 Sprints)"
-    items:
       - title: "Benchmark Dashboards"
         description: >-
-          Emit structured metrics from `rpi4/bench/pi_bench.py` and surface summaries
-          within the Textual UI.
+          Added structured benchmark histories and a Textual dashboard panel to
+          visualise Raspberry Pi throughput trends.
         tasks:
           - summary: >-
               Refactor `rpi4/bench/pi_bench.py` to emit JSON summaries alongside CSV
               output for consumption by dashboards.
-            status: todo
+            status: done
           - summary: >-
               Update `automation/ui_app.py` to visualize recent benchmark runs in a
               dedicated panel with trend lines.
-            status: todo
+            status: done
           - summary: >-
               Document how to launch the dashboard mode inside `automation/ui_app.tcss`/
               `README.md`, including expected data refresh cadence.
+            status: done
+  - heading: "⏱️ Near Term (0‑2 Sprints)"
+    items:
+      - title: "Backlog Grooming"
+        description: >-
+          Curate the next batch of optimisations now that the benchmark dashboard
+          has shipped, keeping the Raspberry Pi workflow focused on actionable wins.
+        tasks:
+          - summary: >-
+              Evaluate follow-up analytics (e.g. token latency percentiles,
+              regression alarms) to prioritise for the upcoming sprint.
             status: todo
   - heading: "🔭 Mid Term (Quarter)"
     items:

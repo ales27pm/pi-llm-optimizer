@@ -22,13 +22,15 @@ extends the capabilities already documented in `README.md` and
 - **Batch Labelling Improvements** – Teacher labelling now supports batched prompts, skip-existing safeguards and structured JSON instructions.
 - **Dataset Blueprint CI Integration** – Automated dataset card validation in GitHub Actions now blocks regressions and publishes artifacts for downstream jobs.
 - **Session Sync Orchestrator** – Added `automation/session_sync.py`, manifest v2 with reusable sources, and manifest enforcement toggles for the @codex automation that curates this repository. The `automation/update_and_cleanup.sh` wrapper keeps that internal agent in sync by regenerating guidance, running dry checks and surfacing stray protocols automatically, and must run before every @codex coding session concludes (i.e. at the end of each individual request/response cycle).
+- **Benchmark Dashboards** – Added structured benchmark histories and a Textual dashboard panel to visualise Raspberry Pi throughput trends.
+  - [x] Refactor `rpi4/bench/pi_bench.py` to emit JSON summaries alongside CSV output for consumption by dashboards.
+  - [x] Update `automation/ui_app.py` to visualize recent benchmark runs in a dedicated panel with trend lines.
+  - [x] Document how to launch the dashboard mode inside `automation/ui_app.tcss`/ `README.md`, including expected data refresh cadence.
 
 ## ⏱️ Near Term (0‑2 Sprints)
 
-- **Benchmark Dashboards** – Emit structured metrics from `rpi4/bench/pi_bench.py` and surface summaries within the Textual UI.
-  - [ ] Refactor `rpi4/bench/pi_bench.py` to emit JSON summaries alongside CSV output for consumption by dashboards.
-  - [ ] Update `automation/ui_app.py` to visualize recent benchmark runs in a dedicated panel with trend lines.
-  - [ ] Document how to launch the dashboard mode inside `automation/ui_app.tcss`/ `README.md`, including expected data refresh cadence.
+- **Backlog Grooming** – Curate the next batch of optimisations now that the benchmark dashboard has shipped, keeping the Raspberry Pi workflow focused on actionable wins.
+  - [ ] Evaluate follow-up analytics (e.g. token latency percentiles, regression alarms) to prioritise for the upcoming sprint.
 
 ## 🔭 Mid Term (Quarter)
 

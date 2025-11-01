@@ -32,6 +32,18 @@ Screen {
   gutter: 1;
 }
 
+.panel-help {
+  color: $text-muted;
+  margin-bottom: 1;
+}
+
+.panel-subtitle {
+  color: $text;
+  margin-top: 1;
+  margin-bottom: 1;
+  text-style: bold;
+}
+
 .panel-title {
   text-style: bold;
   margin-bottom: 1;
@@ -52,5 +64,24 @@ Screen {
   border: round $accent 40%;
   padding: 1;
   margin: 1 0 1 1;
+}
+
+#benchmark-dashboard {
+  border: round $accent 30%;
+  padding: 1;
+  gutter: 1;
+}
+
+#bench-dashboard-status {
+  color: $text-muted;
+}
+
+#bench-dashboard-sparkline {
+  height: 5;
+}
+
+#bench-dashboard-table {
+  height: auto;
+  max-height: 16;
 }
 

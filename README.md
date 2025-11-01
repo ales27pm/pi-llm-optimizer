@@ -169,11 +169,15 @@ python rpi4/bench/pi_bench.py \
     --model ~/models/your-student.q4_k_m.gguf \
     --iterations 3 \
     --min-tokps 0.25 \
-    --csv rpi4/bench/out/bench.csv
+    --csv rpi4/bench/out/bench.csv \
+    --json rpi4/bench/out/bench_history.json
 ```
 
-This will produce a CSV of init/decode/embedding timings and validate
-the minimum token rate.
+This will produce a CSV of init/decode/embedding timings, validate the
+minimum token rate and append a JSON summary (including device model,
+kernel version and the current git commit) to
+`rpi4/bench/out/bench_history.json`.  The JSON file keeps the 200 most
+recent runs by default so dashboards can track trends over time.
 
 ## Interactive Terminal UI
 
@@ -190,6 +194,18 @@ GGUF export and Raspberry Pi benchmarking.  Each panel validates your inputs,
 shows the exact command that will be executed (via
 `automation/pipeline_ops.py`), and streams live logs so you can track progress
 in real time.
+
+To focus on benchmark analytics, launch the UI in dashboard mode:
+
+```bash
+python -m automation.ui_app --dashboard --benchmark-refresh 30
+```
+
+Dashboard mode collapses the navigation to the benchmark panel, reads
+`rpi4/bench/out/bench_history.json` and refreshes the sparkline/table every
+30 seconds (customisable via `--benchmark-refresh`).  Use `--benchmark-history`
+to point at an alternate JSON history file if you store benchmark data
+elsewhere.
 
 ## Command Builders & Automation
 

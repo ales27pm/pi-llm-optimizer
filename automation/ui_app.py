@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -13,11 +15,13 @@ from textual.reactive import reactive
 from textual.widgets import (
     Button,
     Checkbox,
+    DataTable,
     Footer,
     Header,
     Input,
     Label,
     Select,
+    Sparkline,
     Tab,
     Tabs,
     TextLog,
@@ -32,10 +36,13 @@ from .pipeline_ops import (
     QLORA_PRESETS,
 )
 
+from rpi4.bench.history_utils import load_history
+
 if TYPE_CHECKING:
     from desktop_distill.train_student import QLoRAPreset
 
 APP_CSS_PATH = Path(__file__).with_name("ui_app.tcss")
+DEFAULT_BENCHMARK_HISTORY = Path("rpi4/bench/out/bench_history.json")
 
 
 QLORA_PRESET_OPTIONS = [
@@ -47,6 +54,102 @@ QLORA_PRESET_OPTIONS = [
 DEFAULT_PRESET_DETAILS = "Select a preset to populate quantisation and LoRA hyperparameters."
 MISSING_PRESET_DETAILS = "Preset metadata missing; verify desktop_distill/train_student.py."
 DEFAULT_TARGET_MODULES = "q_proj,k_proj,v_proj,o_proj"
+
+
+class BenchmarkDashboard(Vertical):
+    """Render benchmark history with trend visualisations."""
+
+    def __init__(
+        self,
+        history_path: Path,
+        refresh_interval: float,
+        *,
+        max_entries: int = 20,
+    ) -> None:
+        super().__init__(id="benchmark-dashboard")
+        self._history_path = history_path
+        self._refresh_interval = refresh_interval
+        self._max_entries = max_entries
+        self._status = Label("Awaiting benchmark results…", id="bench-dashboard-status")
+        self._sparkline = Sparkline(id="bench-dashboard-sparkline")
+        self._table = DataTable(id="bench-dashboard-table", zebra_stripes=True)
+
+    def compose(self) -> ComposeResult:  # pragma: no cover - UI composition
+        yield Label("Benchmark trends", classes="panel-subtitle")
+        yield self._status
+        yield self._sparkline
+        yield self._table
+
+    def on_mount(self) -> None:  # pragma: no cover - runtime behaviour
+        self._table.add_columns("Timestamp", "Avg tok/s", "Min tok/s", "Model")
+        self.set_interval(self._refresh_interval, self.refresh_data, pause=False)
+        self.refresh_data()
+
+    def refresh_data(self) -> None:  # pragma: no cover - runtime behaviour
+        runs = load_history(self._history_path)
+        if not runs:
+            self._status.update(f"No history found at {self._history_path}")
+            self._sparkline.data = []
+            self._table.clear()
+            return
+
+        latest_runs = runs[-self._max_entries:]
+        averages = [
+            value
+            for value in (_coerce_float(run, "summary", "average_tokps") for run in latest_runs)
+            if value is not None
+        ]
+        self._table.clear()
+        for run in reversed(latest_runs):
+            avg = _coerce_float(run, "summary", "average_tokps")
+            minimum = _coerce_float(run, "summary", "minimum_observed_tokps")
+            timestamp = self._format_timestamp(run.get("timestamp"))
+            model_name = Path(str(run.get("model", "?"))).name
+            self._table.add_row(
+                timestamp,
+                f"{avg:.2f}" if avg is not None else "-",
+                f"{minimum:.2f}" if minimum is not None else "-",
+                model_name,
+            )
+
+        if averages:
+            self._sparkline.data = averages
+        else:
+            self._sparkline.data = []
+
+        last_run = latest_runs[-1]
+        last_timestamp = self._format_timestamp(last_run.get("timestamp"))
+        last_avg = _coerce_float(last_run, "summary", "average_tokps")
+        if last_avg is not None:
+            self._status.update(
+                f"Last run {last_timestamp} • avg {last_avg:.2f} tok/s"
+            )
+        else:
+            self._status.update(f"Last run {last_timestamp}")
+
+    @staticmethod
+    def _format_timestamp(value: Optional[str]) -> str:
+        if not value:
+            return "unknown"
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+        return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _coerce_float(payload: dict[str, Any], *keys: str) -> Optional[float]:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    if current is None:
+        return None
+    try:
+        return float(current)
+    except (TypeError, ValueError):
+        return None
 
 
 class QLoRaPresetController:
@@ -131,32 +234,54 @@ class PipelineApp(App[None]):
 
     current_panel: reactive[str] = reactive("label")
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        default_panel: str = "label",
+        benchmark_history_path: Path = DEFAULT_BENCHMARK_HISTORY,
+        benchmark_refresh_seconds: float = 30.0,
+        dashboard_only: bool = False,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._qlora_preset_controller: Optional[QLoRaPresetController] = None
+        self._benchmark_history_path = benchmark_history_path
+        self._benchmark_refresh_seconds = benchmark_refresh_seconds
+        self._dashboard_only = dashboard_only
+        self._available_panels = ["label", "train", "export", "bench"]
+        if self._dashboard_only:
+            self._available_panels = ["bench"]
+        self._default_panel = default_panel if default_panel in self._available_panels else self._available_panels[0]
 
     def compose(self) -> ComposeResult:  # pragma: no cover - UI composition
         yield Header(show_clock=True)
         with Horizontal(id="layout"):
             with Vertical(id="sidebar"):
                 yield Label("Pipeline stages", id="sidebar-title")
-                yield Tabs(
-                    Tab("Teacher labelling", id="label"),
-                    Tab("Student training", id="train"),
-                    Tab("GGUF export", id="export"),
-                    Tab("Benchmark", id="bench"),
-                    id="nav-tabs",
-                )
+                tab_widgets = []
+                if "label" in self._available_panels:
+                    tab_widgets.append(Tab("Teacher labelling", id="label"))
+                if "train" in self._available_panels:
+                    tab_widgets.append(Tab("Student training", id="train"))
+                if "export" in self._available_panels:
+                    tab_widgets.append(Tab("GGUF export", id="export"))
+                if "bench" in self._available_panels:
+                    tab_widgets.append(Tab("Benchmark", id="bench"))
+                yield Tabs(*tab_widgets, id="nav-tabs")
                 with Container(id="panel-holder"):
-                    yield self._build_teacher_panel()
-                    yield self._build_train_panel()
-                    yield self._build_export_panel()
-                    yield self._build_benchmark_panel()
+                    if "label" in self._available_panels:
+                        yield self._build_teacher_panel()
+                    if "train" in self._available_panels:
+                        yield self._build_train_panel()
+                    if "export" in self._available_panels:
+                        yield self._build_export_panel()
+                    if "bench" in self._available_panels:
+                        yield self._build_benchmark_panel()
             yield TextLog(id="log", highlight=True, wrap=True)
         yield Footer()
 
     def on_mount(self) -> None:  # pragma: no cover - runtime behaviour
-        self._switch_panel("label")
+        self._switch_panel(self._default_panel)
         log_widget = self.query_one(TextLog)
         if PROTOCOL_METADATA is not None:
             log_widget.write(
@@ -166,7 +291,8 @@ class PipelineApp(App[None]):
             log_widget.write(
                 "[yellow]WARNING:[/] Agent protocol metadata could not be loaded. Review AGENTS.md for format changes."
             )
-        self._qlora_preset_controller = QLoRaPresetController(self)
+        if "train" in self._available_panels:
+            self._qlora_preset_controller = QLoRaPresetController(self)
 
     async def action_switch(self, panel_id: str) -> None:  # pragma: no cover - runtime behaviour
         self._switch_panel(panel_id)
@@ -186,6 +312,8 @@ class PipelineApp(App[None]):
         self._qlora_preset_controller.handle(event.value if event.value else None)
 
     def _switch_panel(self, panel_id: str) -> None:
+        if panel_id not in self._available_panels:
+            panel_id = self._default_panel
         panel_holder = self.query_one("#panel-holder")
         for child in panel_holder.children:
             child.display = child.id == f"panel-{panel_id}"
@@ -276,7 +404,19 @@ class PipelineApp(App[None]):
                 Input(placeholder="Iterations (default 3)", id="bench-iterations"),
                 Input(placeholder="Minimum tok/s (optional)", id="bench-min-tokps"),
                 Input(placeholder="CSV output path (optional)", id="bench-csv"),
+                Input(placeholder="JSON history path (optional)", id="bench-json"),
+                Input(placeholder="JSON history limit (default 200)", id="bench-json-limit"),
                 Button("Run benchmark", id="run-bench"),
+            ],
+            extra_sections=[
+                Label(
+                    f"Reading history from {self._benchmark_history_path}",
+                    classes="panel-help",
+                ),
+                BenchmarkDashboard(
+                    self._benchmark_history_path,
+                    self._benchmark_refresh_seconds,
+                ),
             ],
         )
 
@@ -287,12 +427,14 @@ class PipelineApp(App[None]):
         title: str,
         description: str,
         controls: list[object],
+        extra_sections: Optional[list[object]] = None,
     ) -> Container:
         panel = Container(
             Vertical(
                 Label(title, classes="panel-title"),
                 Label(description, classes="panel-description"),
                 *controls,
+                *(extra_sections or []),
                 classes="panel-body",
             ),
             id=f"panel-{panel_id}",
@@ -385,6 +527,8 @@ class PipelineApp(App[None]):
                 iterations=self._optional_int("#bench-iterations", default=3),
                 min_tokps=self._optional_float("#bench-min-tokps"),
                 csv_path=self._optional_path("#bench-csv"),
+                json_path=self._optional_path("#bench-json"),
+                json_limit=self._optional_int("#bench-json-limit"),
             )
         except ValueError as exc:
             self._report_error(str(exc))
@@ -474,6 +618,47 @@ class PipelineApp(App[None]):
         else:
             log.write(f"[bold red]✖ {label} failed with exit code {return_code}[/bold red]")
 
+def _parse_cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Interactive pipeline dashboard")
+    parser.add_argument(
+        "--panel",
+        choices=["label", "train", "export", "bench"],
+        default="label",
+        help="Panel to focus on at startup",
+    )
+    parser.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Launch in benchmark dashboard mode (benchmark panel only)",
+    )
+    parser.add_argument(
+        "--benchmark-history",
+        type=Path,
+        default=DEFAULT_BENCHMARK_HISTORY,
+        help="Path to the benchmark history JSON file",
+    )
+    parser.add_argument(
+        "--benchmark-refresh",
+        type=float,
+        default=30.0,
+        help="Seconds between benchmark dashboard refreshes",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:  # pragma: no cover - CLI wrapper
+    args = _parse_cli_args()
+    refresh_interval = max(args.benchmark_refresh, 1.0)
+    history_path = args.benchmark_history.expanduser().resolve()
+    default_panel = "bench" if args.dashboard else args.panel
+    app = PipelineApp(
+        default_panel=default_panel,
+        benchmark_history_path=history_path,
+        benchmark_refresh_seconds=refresh_interval,
+        dashboard_only=args.dashboard,
+    )
+    app.run()
+
 
 if __name__ == "__main__":  # pragma: no cover
-    PipelineApp().run()
+    main()
