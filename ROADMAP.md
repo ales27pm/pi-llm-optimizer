@@ -33,8 +33,10 @@ extends the capabilities already documented in `README.md` and
   artifacts for downstream jobs.
 - **Session Sync Orchestrator** – Added `automation/session_sync.py`,
   manifest v2 with reusable sources, and manifest enforcement toggles
-  so `automation/update_and_cleanup.sh` regenerates guidance, runs dry
-  checks, and surfaces stray protocols automatically.
+  for the @codex automation that curates this repository. The
+  `automation/update_and_cleanup.sh` wrapper keeps that internal agent in
+  sync by regenerating guidance, running dry checks and surfacing stray
+  protocols automatically.
 
 ## ⏱️ Near Term (0‑2 Sprints)
 

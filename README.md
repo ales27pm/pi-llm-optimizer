@@ -35,10 +35,12 @@ using [llama.cpp](https://github.com/ggml-org/llama.cpp).
   deployment and on-device benchmarking.  A Textual-powered dashboard
   (`automation/ui_app.py`) reuses the same builders to provide a guided
   terminal UI.
-* **Session Sync Automation** – `automation/session_sync.py` centralises
-  Prettier formatting, scoped agent protocol regeneration, optional
-  lint/test execution, and workspace cleanup with manifest enforcement
-  and dry-run checks wired through `automation/update_and_cleanup.sh`.
+* **Codex Session Sync Automation** – `automation/session_sync.py`
+  centralises Prettier formatting, scoped agent protocol regeneration,
+  optional lint/test execution, and workspace cleanup for the internal
+  @codex assistant environment. The orchestration runs through
+  `automation/update_and_cleanup.sh` and is not part of the standard
+  project toolchain for external contributors.
 * **Dataset Documentation** – `dataset/qf_corpus_blueprint/scripts/dataset_card.py`
   summarises register and dialect coverage, hashes corpora and emits
   provenance-rich dataset cards through a reusable library and CLI.
@@ -264,9 +266,13 @@ included throughout the automation helpers to aid IDE integration.
 
 ## Maintenance Workflow
 
-Before opening a pull request, run the repository refresh script to
-format documentation, synchronise nested contributor guidance and remove
-stale artifacts:
+The end-of-session sync tooling primarily supports the @codex agent
+that maintains this repository. Maintainers outside that automation can
+run the same refresh script whenever they want to replicate the codex
+housekeeping (formatting, agent regeneration and cache cleanup), but it
+is not a required step for day-to-day project development.
+
+To invoke the workflow manually, run:
 
 ```bash
 ./automation/update_and_cleanup.sh
@@ -274,9 +280,10 @@ stale artifacts:
 
 The wrapper delegates to `automation/session_sync.py`, which coordinates
 Prettier formatting, manifest-driven protocol generation, optional
-`npm run lint`/`pytest` execution, and filesystem cleanup.  Canonical
-agent guidance lives under `automation/agent_sources/` and is compiled
-into tracked `AGENTS.md` files via `automation/agents_manifest.json`.
+`npm run lint`/`pytest` execution, and filesystem cleanup whenever the
+@codex automation runs its end-of-session maintenance. Canonical agent
+guidance lives under `automation/agent_sources/` and is compiled into
+tracked `AGENTS.md` files via `automation/agents_manifest.json`.
 Adjust the manifest instead of editing generated files by hand so
 updates remain reproducible across sessions.
 
