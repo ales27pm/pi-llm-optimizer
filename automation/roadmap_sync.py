@@ -6,9 +6,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Sequence
+from typing import Sequence
 
 import yaml
+from jinja2 import Environment
+from pydantic import BaseModel, Field, ValidationError, root_validator, validator
 
 LOGGER = logging.getLogger("roadmap_sync")
 
@@ -17,37 +19,137 @@ class RoadmapSyncError(RuntimeError):
     """Raised when the roadmap synchronisation workflow cannot complete."""
 
 
-@dataclass(frozen=True)
-class RoadmapTask:
+class RoadmapTask(BaseModel):
     """A single checkbox entry within a roadmap item."""
 
     summary: str
-    status: str
+    status: str = Field("todo")
 
-    def marker(self) -> str:
-        if self.status == "done":
-            return "x"
-        if self.status == "todo":
-            return " "
-        raise RoadmapSyncError(f"Unsupported task status: {self.status}")
+    class Config:
+        extra = "forbid"
+
+    @validator("summary")
+    def _ensure_summary(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("summary must be a non-empty string")
+        return value.strip()
+
+    @validator("status", pre=True)
+    def _normalise_status(cls, value: str | None) -> str:
+        if value is None:
+            return "todo"
+        if not isinstance(value, str):
+            raise ValueError("status must be a string")
+        normalised = value.strip().lower()
+        if normalised not in {"todo", "done"}:
+            raise ValueError("status must be 'todo' or 'done'")
+        return normalised
 
 
-@dataclass(frozen=True)
-class RoadmapItem:
+class RoadmapItem(BaseModel):
     """A roadmap bullet containing a title, description, and optional tasks."""
 
     title: str
     description: str
-    tasks: Sequence[RoadmapTask]
+    tasks: list[RoadmapTask] = Field(default_factory=list)
+
+    class Config:
+        extra = "forbid"
+
+    @validator("title")
+    def _ensure_title(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("title must be a non-empty string")
+        return value.strip()
+
+    @validator("description")
+    def _ensure_description(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("description must be a non-empty string")
+        return value.strip()
 
 
-@dataclass(frozen=True)
-class RoadmapSection:
+class RoadmapSection(BaseModel):
     """A roadmap section grouping related items or free-form bullets."""
 
     heading: str
-    items: Sequence[RoadmapItem]
-    bullets: Sequence[str]
+    items: list[RoadmapItem] = Field(default_factory=list)
+    bullets: list[str] = Field(default_factory=list)
+
+    class Config:
+        extra = "forbid"
+
+    @validator("heading")
+    def _ensure_heading(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("heading must be a non-empty string")
+        return value.strip()
+
+    @validator("bullets", pre=True)
+    def _default_bullets(cls, value: Sequence[str] | None) -> Sequence[str]:
+        return [] if value is None else value
+
+    @validator("bullets", each_item=True)
+    def _normalise_bullet(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("bullets must contain non-empty strings")
+        return value.strip()
+
+    @root_validator
+    def _ensure_content(cls, values: dict) -> dict:
+        items: list[RoadmapItem] = values.get("items", [])
+        bullets: list[str] = values.get("bullets", [])
+        if not items and not bullets:
+            raise ValueError("section must define at least one item or bullet")
+        return values
+
+
+class RoadmapMetadata(BaseModel):
+    """Document metadata used to render the roadmap header."""
+
+    title: str
+    intro: str | None = None
+
+    class Config:
+        extra = "forbid"
+
+    @validator("title")
+    def _ensure_title(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("title must be a non-empty string")
+        return value.strip()
+
+    @validator("intro")
+    def _normalise_intro(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("intro must be a string")
+        stripped = value.strip()
+        return stripped or None
+
+    @property
+    def intro_lines(self) -> list[str]:
+        if not self.intro:
+            return []
+        lines = [line.rstrip() for line in self.intro.splitlines()]
+        return [line for line in lines if line]
+
+
+class RoadmapConfig(BaseModel):
+    """Structured roadmap configuration parsed from YAML."""
+
+    metadata: RoadmapMetadata
+    sections: list[RoadmapSection]
+
+    class Config:
+        extra = "forbid"
+
+    @validator("sections")
+    def _ensure_sections(cls, value: list[RoadmapSection]) -> list[RoadmapSection]:
+        if not value:
+            raise ValueError("at least one section must be defined")
+        return value
 
 
 @dataclass(frozen=True)
@@ -58,6 +160,33 @@ class RoadmapSyncSummary:
     items_rendered: int
     tasks_rendered: int
     changed: bool
+
+
+_TEMPLATE_ENV = Environment(autoescape=False, trim_blocks=True, lstrip_blocks=True)
+_ROADMAP_TEMPLATE = _TEMPLATE_ENV.from_string(
+    """
+# {{ metadata.title }}
+
+{% for line in metadata.intro_lines %}
+{{ line }}
+{% endfor %}{% if metadata.intro_lines %}
+
+{% endif %}{% for section in sections %}
+## {{ section.heading }}
+
+{% for item in section.items %}
+- **{{ item.title }}** – {{ item.description }}
+{% for task in item.tasks %}
+  - [{{ 'x' if task.status == 'done' else ' ' }}] {{ task.summary }}
+{% endfor %}
+{% endfor %}
+{% for bullet in section.bullets %}
+- {{ bullet }}
+{% endfor %}{% if not loop.last %}
+
+{% endif %}{% endfor %}
+""".strip()
+)
 
 
 class RoadmapSynchroniser:
@@ -79,44 +208,18 @@ class RoadmapSynchroniser:
     # Public API -----------------------------------------------------
     def run(self) -> RoadmapSyncSummary:
         LOGGER.info("Regenerating roadmap from %s", self.source_path)
-        raw_config = self._load_config()
-        metadata = raw_config.get("metadata")
-        if not isinstance(metadata, dict):
-            raise RoadmapSyncError("Roadmap metadata must be a mapping with title and intro fields.")
-
-        title = self._require_str(metadata, "title")
-        intro = self._normalise_lines(metadata.get("intro"))
-
-        sections_data = raw_config.get("sections")
-        if not isinstance(sections_data, list) or not sections_data:
-            raise RoadmapSyncError("Roadmap must define at least one section.")
-
-        sections: List[RoadmapSection] = []
-        item_count = 0
-        task_count = 0
-        for entry in sections_data:
-            if not isinstance(entry, dict):
-                raise RoadmapSyncError("Each section definition must be a mapping.")
-            heading = self._require_str(entry, "heading")
-            items = self._parse_items(entry.get("items"))
-            bullets = self._parse_bullets(entry.get("bullets"))
-            if not items and not bullets:
-                raise RoadmapSyncError(f"Section '{heading}' must define items or bullets.")
-            sections.append(RoadmapSection(heading=heading, items=items, bullets=bullets))
-            item_count += len(items)
-            task_count += sum(len(item.tasks) for item in items)
-
-        rendered = self._render_document(title, intro, sections)
+        config = self._load_config()
+        rendered = self._render_document(config)
         changed = self._write(rendered)
         return RoadmapSyncSummary(
-            sections_rendered=len(sections),
-            items_rendered=item_count,
-            tasks_rendered=task_count,
+            sections_rendered=len(config.sections),
+            items_rendered=sum(len(section.items) for section in config.sections),
+            tasks_rendered=sum(len(item.tasks) for section in config.sections for item in section.items),
             changed=changed,
         )
 
     # Internal helpers ----------------------------------------------
-    def _load_config(self) -> dict:
+    def _load_config(self) -> RoadmapConfig:
         try:
             text = self.source_path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
@@ -125,94 +228,27 @@ class RoadmapSynchroniser:
             loaded = yaml.safe_load(text) or {}
         except yaml.YAMLError as exc:
             raise RoadmapSyncError(f"Failed to parse roadmap YAML: {exc}") from exc
-        if not isinstance(loaded, dict):
-            raise RoadmapSyncError("Roadmap configuration must be a mapping at the top level.")
-        return loaded
+        try:
+            return RoadmapConfig.parse_obj(loaded)
+        except ValidationError as exc:
+            raise RoadmapSyncError(self._format_validation_error(exc)) from exc
 
     @staticmethod
-    def _require_str(container: dict, key: str) -> str:
-        value = container.get(key)
-        if not isinstance(value, str) or not value.strip():
-            raise RoadmapSyncError(f"Field '{key}' must be a non-empty string.")
-        return value.strip()
-
-    def _parse_items(self, raw_items: object) -> List[RoadmapItem]:
-        if raw_items is None:
-            return []
-        if not isinstance(raw_items, list):
-            raise RoadmapSyncError("Section items must be provided as a list.")
-        items: List[RoadmapItem] = []
-        for idx, raw_item in enumerate(raw_items):
-            if not isinstance(raw_item, dict):
-                raise RoadmapSyncError("Each item must be a mapping with title and description.")
-            title = self._require_str(raw_item, "title")
-            description = self._require_str(raw_item, "description")
-            tasks = self._parse_tasks(raw_item.get("tasks"), title, idx)
-            items.append(RoadmapItem(title=title, description=description, tasks=tasks))
-        return items
-
-    def _parse_tasks(self, raw_tasks: object, title: str, index: int) -> List[RoadmapTask]:
-        if raw_tasks is None:
-            return []
-        if not isinstance(raw_tasks, list):
-            raise RoadmapSyncError(f"Tasks for '{title}' must be a list of mappings.")
-        tasks: List[RoadmapTask] = []
-        for raw_task in raw_tasks:
-            if not isinstance(raw_task, dict):
-                raise RoadmapSyncError(f"Task entries for '{title}' must be mappings.")
-            summary = self._require_str(raw_task, "summary")
-            status_raw = raw_task.get("status", "todo")
-            if not isinstance(status_raw, str):
-                raise RoadmapSyncError(f"Task status for '{title}' must be a string.")
-            status = status_raw.strip().lower()
-            if status not in {"todo", "done"}:
-                raise RoadmapSyncError(
-                    f"Task status for '{title}' must be 'todo' or 'done', got '{status_raw}'."
-                )
-            tasks.append(RoadmapTask(summary=summary, status=status))
-        return tasks
-
-    def _parse_bullets(self, raw_bullets: object) -> List[str]:
-        if raw_bullets is None:
-            return []
-        if not isinstance(raw_bullets, list):
-            raise RoadmapSyncError("Bullets must be expressed as a list of strings.")
-        bullets: List[str] = []
-        for bullet in raw_bullets:
-            if not isinstance(bullet, str) or not bullet.strip():
-                raise RoadmapSyncError("Roadmap bullet entries must be non-empty strings.")
-            bullets.append(bullet.strip())
-        return bullets
+    def _format_validation_error(exc: ValidationError) -> str:
+        details = ", ".join(
+            f"{RoadmapSynchroniser._format_location(err['loc'])}: {err['msg']}"
+            for err in exc.errors()
+        )
+        return f"Invalid roadmap configuration: {details}"
 
     @staticmethod
-    def _normalise_lines(value: object) -> Sequence[str]:
-        if value is None:
-            return []
-        if not isinstance(value, str):
-            raise RoadmapSyncError("Intro text must be a string.")
-        lines = [line.rstrip() for line in value.strip().splitlines()]
-        return [line for line in lines if line]
+    def _format_location(location: Sequence[object]) -> str:
+        return ".".join(str(part) for part in location if part is not None)
 
     @staticmethod
-    def _render_document(title: str, intro_lines: Sequence[str], sections: Sequence[RoadmapSection]) -> str:
-        lines: List[str] = [f"# {title}", ""]
-        for intro_line in intro_lines:
-            lines.append(intro_line)
-        if intro_lines:
-            lines.append("")
-        for idx, section in enumerate(sections):
-            lines.append(f"## {section.heading}")
-            lines.append("")
-            for item in section.items:
-                lines.append(f"- **{item.title}** – {item.description}")
-                for task in item.tasks:
-                    lines.append(f"  - [{task.marker()}] {task.summary}")
-            for bullet in section.bullets:
-                lines.append(f"- {bullet}")
-            if idx != len(sections) - 1:
-                lines.append("")
-        rendered = "\n".join(lines).rstrip() + "\n"
-        return rendered
+    def _render_document(config: RoadmapConfig) -> str:
+        rendered = _ROADMAP_TEMPLATE.render(metadata=config.metadata, sections=config.sections).rstrip()
+        return f"{rendered}\n"
 
     def _write(self, content: str) -> bool:
         target = self.target_path

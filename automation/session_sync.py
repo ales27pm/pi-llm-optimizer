@@ -268,7 +268,6 @@ class SessionSync:
 
     # Public API ---------------------------------------------------------
     def run(self) -> SessionSyncSummary:
-        task_map: Dict[str, object] = {}
         tasks: Sequence[tuple[bool, Callable[[], object], str]] = (
             (
                 not self.config.skip_roadmap,
@@ -292,9 +291,11 @@ class SessionSync:
             ),
         )
 
-        for enabled, runner, key in tasks:
-            if enabled:
-                task_map[key] = runner()
+        task_map: Dict[str, object] = {
+            key: runner()
+            for enabled, runner, key in tasks
+            if enabled
+        }
 
         post_steps = (
             (self.config.run_npm_lint, ["npm", "run", "lint"], "npm lint"),
