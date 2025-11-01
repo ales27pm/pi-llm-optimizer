@@ -39,8 +39,9 @@ using [llama.cpp](https://github.com/ggml-org/llama.cpp).
   centralises Prettier formatting, scoped agent protocol regeneration,
   optional lint/test execution, and workspace cleanup for the internal
   @codex assistant environment. The orchestration runs through
-  `automation/update_and_cleanup.sh` and is not part of the standard
-  project toolchain for external contributors.
+  `automation/update_and_cleanup.sh`, which @codex maintainers must run
+  at the end of every session, and is not part of the standard project
+  toolchain for external contributors.
 * **Dataset Documentation** – `dataset/qf_corpus_blueprint/scripts/dataset_card.py`
   summarises register and dialect coverage, hashes corpora and emits
   provenance-rich dataset cards through a reusable library and CLI.
@@ -267,10 +268,13 @@ included throughout the automation helpers to aid IDE integration.
 ## Maintenance Workflow
 
 The end-of-session sync tooling primarily supports the @codex agent
-that maintains this repository. Maintainers outside that automation can
-run the same refresh script whenever they want to replicate the codex
-housekeeping (formatting, agent regeneration and cache cleanup), but it
-is not a required step for day-to-day project development.
+that maintains this repository. Within that workflow the
+`automation/update_and_cleanup.sh` wrapper **must** run at the end of
+every @codex session to keep generated guidance, formatting and caches
+in sync. Maintainers outside that automation can run the same refresh
+script whenever they want to replicate the codex housekeeping
+(formatting, agent regeneration and cache cleanup), but it is not a
+required step for day-to-day project development.
 
 To invoke the workflow manually, run:
 
