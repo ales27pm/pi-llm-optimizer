@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+VENV_DIR="${SCRIPT_DIR}/.session_sync_venv"
+VENV_PYTHON=""
 cd "${REPO_ROOT}"
 
 log() {
@@ -62,6 +64,36 @@ run_step() {
 }
 
 log "automation.session_sync arguments: ${SESSION_SYNC_ARGS[*]}"
-run_step "automation.session_sync" python3 -m automation.session_sync "${SESSION_SYNC_ARGS[@]}"
+
+resolve_venv_python() {
+  if [[ -x "${VENV_DIR}/bin/python3" ]]; then
+    VENV_PYTHON="${VENV_DIR}/bin/python3"
+  elif [[ -x "${VENV_DIR}/bin/python" ]]; then
+    VENV_PYTHON="${VENV_DIR}/bin/python"
+  elif [[ -x "${VENV_DIR}/Scripts/python.exe" ]]; then
+    VENV_PYTHON="${VENV_DIR}/Scripts/python.exe"
+  else
+    VENV_PYTHON=""
+  fi
+}
+
+ensure_session_sync_python() {
+  if [[ ! -d "${VENV_DIR}" ]]; then
+    run_step "create session_sync virtualenv" python3 -m venv "${VENV_DIR}"
+  else
+    log "Reusing session sync virtual environment at ${VENV_DIR}."
+  fi
+
+  resolve_venv_python
+  if [[ -z "${VENV_PYTHON}" ]]; then
+    fail "Unable to locate Python executable in ${VENV_DIR}. Remove the directory and re-run the script."
+  fi
+
+  run_step "install session_sync dependencies" "${VENV_PYTHON}" -m pip install --disable-pip-version-check --requirement "${SCRIPT_DIR}/requirements.txt"
+}
+
+ensure_session_sync_python
+
+run_step "automation.session_sync" "${VENV_PYTHON}" -m automation.session_sync "${SESSION_SYNC_ARGS[@]}"
 
 log "Repository refresh complete."

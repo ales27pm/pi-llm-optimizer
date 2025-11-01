@@ -287,6 +287,12 @@ To invoke the workflow manually, run:
 ./automation/update_and_cleanup.sh
 ```
 
+The wrapper provisions an isolated Python environment under
+`automation/.session_sync_venv` on first run and installs the
+dependencies listed in `automation/requirements.txt`. Subsequent
+invocations reuse that environment; delete the directory if it becomes
+corrupted to trigger a clean rebuild.
+
 The wrapper delegates to `automation/session_sync.py`, which coordinates
 Prettier formatting, manifest-driven protocol generation, optional
 `npm run lint`/`pytest` execution, and filesystem cleanup whenever the
