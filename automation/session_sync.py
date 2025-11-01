@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from . import sync_agents
+from . import roadmap_sync, sync_agents
 
 LOGGER = logging.getLogger("session_sync")
 
@@ -32,6 +32,7 @@ class SessionSyncConfig:
     skip_formatting: bool = False
     skip_agent_sync: bool = False
     skip_cleanup: bool = False
+    skip_roadmap: bool = False
     run_npm_lint: bool = False
     run_pytest: bool = False
     enforce_manifest: Optional[bool] = None
@@ -60,6 +61,7 @@ class SessionSyncSummary:
     formatting: Optional[FormattingSummary]
     agent_sync: Optional[sync_agents.SyncResult]
     cleanup: Optional[CleanupSummary]
+    roadmap: Optional[roadmap_sync.RoadmapSyncSummary]
 
 
 class CommandRunner:
@@ -250,6 +252,12 @@ class SessionSync:
             check=config.check,
             commands=self.commands,
         )
+        self.roadmap = roadmap_sync.RoadmapSynchroniser(
+            repo_root=self.repo_root,
+            source_path=self.repo_root / "automation" / "roadmap.yaml",
+            target_path=self.repo_root / "ROADMAP.md",
+            check=config.check,
+        )
         self.agent_sync = AgentSynchroniser(
             self.repo_root,
             self.manifest_path,
@@ -260,8 +268,12 @@ class SessionSync:
 
     # Public API ---------------------------------------------------------
     def run(self) -> SessionSyncSummary:
-        task_map: Dict[str, object] = {}
         tasks: Sequence[tuple[bool, Callable[[], object], str]] = (
+            (
+                not self.config.skip_roadmap,
+                self._run_roadmap,
+                "roadmap",
+            ),
             (
                 not self.config.skip_formatting,
                 self.formatter.run,
@@ -279,9 +291,11 @@ class SessionSync:
             ),
         )
 
-        for enabled, runner, key in tasks:
-            if enabled:
-                task_map[key] = runner()
+        task_map: Dict[str, object] = {
+            key: runner()
+            for enabled, runner, key in tasks
+            if enabled
+        }
 
         post_steps = (
             (self.config.run_npm_lint, ["npm", "run", "lint"], "npm lint"),
@@ -295,7 +309,14 @@ class SessionSync:
             formatting=task_map.get("formatting"),
             agent_sync=task_map.get("agent_sync"),
             cleanup=task_map.get("cleanup"),
+            roadmap=task_map.get("roadmap"),
         )
+
+    def _run_roadmap(self) -> roadmap_sync.RoadmapSyncSummary:
+        try:
+            return self.roadmap.run()
+        except roadmap_sync.RoadmapSyncError as exc:
+            raise SessionSyncError(f"Roadmap synchronisation failed: {exc}") from exc
 
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -309,6 +330,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--check", action="store_true", help="Dry-run mode. Fail when changes would be written.")
     parser.add_argument("--skip-formatting", action="store_true", help="Disable Prettier invocation.")
+    parser.add_argument("--skip-roadmap", action="store_true", help="Skip ROADMAP.md regeneration.")
     parser.add_argument("--skip-agent-sync", action="store_true", help="Skip agent protocol synchronisation.")
     parser.add_argument("--skip-cleanup", action="store_true", help="Skip cache and temporary file cleanup.")
     parser.add_argument("--run-npm-lint", action="store_true", help="Execute `npm run lint` as part of the workflow.")
@@ -337,6 +359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         skip_formatting=args.skip_formatting,
         skip_agent_sync=args.skip_agent_sync,
         skip_cleanup=args.skip_cleanup,
+        skip_roadmap=args.skip_roadmap,
         run_npm_lint=args.run_npm_lint,
         run_pytest=args.run_pytest,
         enforce_manifest=True if args.enforce_manifest else None,
@@ -358,6 +381,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         LOGGER.info(
             "Agent synchronisation complete: %s",
             sync_agents.summarise_reports(summary.agent_sync),
+        )
+    if summary.roadmap:
+        LOGGER.info(
+            "Roadmap synchronisation %s (%d sections, %d items, %d tasks).",
+            "updated" if summary.roadmap.changed else "verified",
+            summary.roadmap.sections_rendered,
+            summary.roadmap.items_rendered,
+            summary.roadmap.tasks_rendered,
         )
     if summary.cleanup:
         LOGGER.info(

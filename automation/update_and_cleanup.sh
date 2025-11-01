@@ -34,6 +34,7 @@ trap 'on_error $? ${LINENO}' ERR
 declare -a FLAG_ENV_MAP=(
   "SESSION_SYNC_CHECK=--check"
   "SESSION_SYNC_SKIP_FORMATTING=--skip-formatting"
+  "SESSION_SYNC_SKIP_ROADMAP=--skip-roadmap"
   "SESSION_SYNC_SKIP_AGENT_SYNC=--skip-agent-sync"
   "SESSION_SYNC_SKIP_CLEANUP=--skip-cleanup"
   "SESSION_SYNC_RUN_NPM_LINT=--run-npm-lint"
