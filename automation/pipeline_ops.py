@@ -187,6 +187,8 @@ class BenchmarkConfig:
     iterations: int = 3
     min_tokps: Optional[float] = None
     csv_path: Optional[Path] = None
+    json_path: Optional[Path] = None
+    json_limit: Optional[int] = None
 
     def build_command(self, python_executable: Optional[str] = None) -> Command:
         if self.iterations < 1:
@@ -197,6 +199,8 @@ class BenchmarkConfig:
         _extend(command, "--iterations", self.iterations)
         _extend(command, "--min-tokps", self.min_tokps)
         _extend(command, "--csv", self.csv_path)
+        _extend(command, "--json", self.json_path)
+        _extend(command, "--json-limit", self.json_limit)
         return command
 
 
