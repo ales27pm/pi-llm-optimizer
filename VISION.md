@@ -1,6 +1,7 @@
 # Vision
 
 This project aims to deliver a **production-grade** system with on-device autonomy, zero drift, and high observability. We prioritise:
+
 - Full implementations over speed.
 - Deterministic behaviour and reproducibility.
 - Clear interfaces, strong typing, and explicit invariants.

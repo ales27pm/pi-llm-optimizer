@@ -6,12 +6,15 @@ cd "$ROOT_DIR"
 
 echo "[bootstrap] Ensuring dependencies..."
 if ! command -v jq >/dev/null 2>&1; then
-  if [ -f /etc/debian_version ]; then
-    sudo apt-get update -y && sudo apt-get install -y jq
-  else
-    echo "[ERR] 'jq' is required. Install it and rerun." >&2
-    exit 1
-  fi
+  echo "[ERR] 'jq' is not installed. Please install it to continue." >&2
+  echo "       Debian/Ubuntu: sudo apt-get install jq" >&2
+  echo "       macOS (Homebrew): brew install jq" >&2
+  exit 1
+fi
+
+if ! python3 -c "import jsonschema" >/dev/null 2>&1; then
+  echo "[ERR] Python package 'jsonschema' is required. Install it with 'pip install jsonschema'." >&2
+  exit 1
 fi
 
 mkdir -p ".agents/schemas" ".agents/modules/core" "scripts"

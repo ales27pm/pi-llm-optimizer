@@ -3,6 +3,7 @@
   "type": "object",
   "required": ["version", "updated_at", "policy", "queue"],
   "properties": {
+    "$schema": {"type": "string"},
     "version": {"type": "integer"},
     "updated_at": {"type": "string"},
     "policy": {

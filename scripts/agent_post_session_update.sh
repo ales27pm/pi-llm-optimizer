@@ -36,7 +36,20 @@ for i in $(seq 1 $RETRIES); do
     echo "[post-session] Pushed successfully."
     exit 0
   fi
-  echo "[post-session] Push failed (attempt $i/$RETRIES). Retrying in 3s..."
+  echo "[post-session] Push failed (attempt $i/$RETRIES)."
+
+  STATUS_OUTPUT="$(git status -sb || true)"
+  if printf '%s\n' "$STATUS_OUTPUT" | grep -q "\[behind"; then
+    echo "[post-session] Remote has new commits. Attempting 'git pull --rebase --autostash'..."
+    if git pull --rebase --autostash; then
+      echo "[post-session] Rebase completed. Retrying push immediately..."
+      continue
+    else
+      abort "Automatic rebase failed. Resolve conflicts and rerun the script."
+    fi
+  fi
+
+  echo "[post-session] Retrying in 3s..."
   sleep 3
 done
 

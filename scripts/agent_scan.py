@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
-import argparse, json, os, re, sys
+import argparse
+import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / ".agents"
 SCHEMAS = AGENTS / "schemas"
 
-def die(msg): print(f"[scan][ERR] {msg}", file=sys.stderr); sys.exit(1)
+def die(msg):
+    print(f"[scan][ERR] {msg}", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    import jsonschema
+except ImportError:  # pragma: no cover - invoked at runtime
+    die("jsonschema is required for validation. Install it with 'pip install jsonschema'.")
 
 def load_json(path):
     try:
@@ -22,25 +31,17 @@ def write_json(path, obj):
         f.write("\n")
     tmp.replace(path)
 
-def validate_against_schema(obj, schema):
-    # Minimal inline validator to avoid external deps; checks presence and types for key fields.
-    # (Deliberately robust but lightweight; not a stub.)
-    def require_keys(o, keys):
-        for k in keys:
-            if k not in o: die(f"Schema violation: missing key '{k}'")
-    sid = schema.get("$id","<schema>")
-    if "modules" in obj and "docs" in obj and "version" in obj:
-        # index.json
-        require_keys(obj, ["version","modules","docs"])
-        if not isinstance(obj["modules"], list): die("index.modules must be array")
-    if "queue" in obj and "policy" in obj:
-        # priorities.json
-        require_keys(obj, ["queue","policy"])
-        if not isinstance(obj["queue"], list): die("priorities.queue must be array")
-    if "tasks" in obj and "module" in obj:
-        # tasks.json
-        require_keys(obj, ["tasks","module"])
-        if not isinstance(obj["tasks"], list): die("tasks.tasks must be array")
+def validate_against_schema(instance, schema_path):
+    schema = load_json(schema_path)
+    try:
+        jsonschema.validate(instance=instance, schema=schema)
+    except jsonschema.ValidationError as err:
+        die(
+            "Schema validation failed for "
+            f"{schema.get('$id', schema_path)}: {err.message}"
+        )
+    except jsonschema.SchemaError as err:
+        die(f"Invalid schema {schema_path}: {err.message}")
     return True
 
 def discover_modules():
@@ -93,16 +94,21 @@ def ensure_task_files(mods):
             })
 
 def validate_all():
-    index = load_json(AGENTS / "index.json")
-    priorities = load_json(AGENTS / "priorities.json")
-    # Load minimal schemas (we just assert structure)
-    validate_against_schema(index, {})
-    validate_against_schema(priorities, {})
+    index_path = AGENTS / "index.json"
+    priorities_path = AGENTS / "priorities.json"
+
+    index = load_json(index_path)
+    priorities = load_json(priorities_path)
+
+    validate_against_schema(index, SCHEMAS / "index.schema.json")
+    validate_against_schema(priorities, SCHEMAS / "priorities.schema.json")
+
     for mod in index["modules"]:
         tf = ROOT / mod["tasks_file"]
-        if not tf.exists(): die(f"Missing tasks file: {tf}")
+        if not tf.exists():
+            die(f"Missing tasks file: {tf}")
         tasks = load_json(tf)
-        validate_against_schema(tasks, {})
+        validate_against_schema(tasks, SCHEMAS / "tasks.schema.json")
     print("[scan] validation OK")
 
 def main():

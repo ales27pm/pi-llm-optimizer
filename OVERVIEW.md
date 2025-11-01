@@ -8,6 +8,7 @@ This repository is organised into modules. The authoritative machine index lives
 When you need deeper context, follow the `refs` inside each task entry; they include exact file paths and line spans.
 
 > To choose the next task automatically:
+>
 > ```bash
 > bash scripts/agent_next_step.sh
 > ```
