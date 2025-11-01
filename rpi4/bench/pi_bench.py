@@ -8,7 +8,7 @@ import platform
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any
 
 from benchmark_csv import BenchmarkCSVWriter, BenchmarkRow
 from history_utils import DEFAULT_HISTORY_LIMIT, append_history
@@ -112,8 +112,16 @@ def _run_llama(args: list[str]) -> None:
     )
 
 
-def bench(model_path: str, prompt: str, ctx: int, batch: int, threads: int, kv_type: str,
-          warmup: int = DEFAULT_WARMUP_TOKENS, decode_tokens: int = DEFAULT_DECODE_TOKENS) -> Tuple[float, float, float]:
+def bench(
+    model_path: str,
+    prompt: str,
+    ctx: int,
+    batch: int,
+    threads: int,
+    kv_type: str,
+    warmup: int = DEFAULT_WARMUP_TOKENS,
+    decode_tokens: int = DEFAULT_DECODE_TOKENS,
+) -> tuple[float, float, float]:
     """Run a benchmark and return (init_ms, tokps, embed_ms)."""
     # Measure initialization/prefill
     t0 = time.perf_counter()
@@ -211,13 +219,15 @@ def main() -> None:
 
     rows = []
     rates = []
+    warmup_tokens = DEFAULT_WARMUP_TOKENS
+    decode_tokens = DEFAULT_DECODE_TOKENS
     metadata = {
         "device_model": _device_model(),
         "kernel": _kernel_version(),
         "commit": _git_commit(),
         "llama_binary": str(LLAMA_BIN),
-        "warmup_tokens": DEFAULT_WARMUP_TOKENS,
-        "decode_tokens": DEFAULT_DECODE_TOKENS,
+        "warmup_tokens": warmup_tokens,
+        "decode_tokens": decode_tokens,
     }
     csv_path = args.csv.expanduser().resolve()
     json_path = args.json.expanduser().resolve()
@@ -231,8 +241,8 @@ def main() -> None:
             args.batch,
             args.threads,
             args.kv_type,
-            DEFAULT_WARMUP_TOKENS,
-            DEFAULT_DECODE_TOKENS,
+            warmup_tokens,
+            decode_tokens,
         )
         rows.append(BenchmarkRow(
             dt.datetime.now(dt.timezone.utc),
