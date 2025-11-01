@@ -58,12 +58,29 @@ def discover_modules():
                     if has_code:
                         mod_name = path.name
                         candidates.append((mod_name, path.relative_to(ROOT)))
-    # De-dup by name, stable order
-    seen, mods = set(), []
-    for name, p in candidates:
-        if name not in seen:
-            mods.append({"name": name, "path": str(p), "tasks_file": f".agents/modules/{name}/tasks.json"})
-            seen.add(name)
+    # De-dup by full relative path and mint unique slugs for tasks files
+    seen_paths, used_slugs, mods = set(), set(), []
+    for name, rel_path in candidates:
+        rel_str = rel_path.as_posix()
+        if rel_str in seen_paths:
+            continue
+        seen_paths.add(rel_str)
+
+        slug = name
+        safe_rel = rel_str.replace("/", "__") or name
+        if slug in used_slugs:
+            slug = safe_rel
+        counter = 2
+        while slug in used_slugs:
+            slug = f"{safe_rel}__{counter}"
+            counter += 1
+        used_slugs.add(slug)
+
+        mods.append({
+            "name": name,
+            "path": rel_str,
+            "tasks_file": f".agents/modules/{slug}/tasks.json"
+        })
     if not mods:
         # fallback core module anchored to scripts directory
         mods = [{"name": "core", "path": "scripts", "tasks_file": ".agents/modules/core/tasks.json"}]
