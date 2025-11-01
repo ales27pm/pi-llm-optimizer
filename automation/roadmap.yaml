@@ -9,6 +9,23 @@ metadata:
 sections:
   - heading: "✅ Recently Landed"
     items:
+      - title: "Remote Model Export UX"
+        description: >-
+          Added download progress logging and actionable HuggingFace resolution
+          diagnostics to the GGUF exporter.
+        tasks:
+          - summary: >-
+              Integrate download progress callbacks into
+              `desktop_distill/export_gguf.py` and surface them in CLI logs.
+            status: done
+          - summary: >-
+              Implement structured exception handling that outputs actionable
+              remediation hints when remote resolution fails.
+            status: done
+          - summary: >-
+              Write integration tests under `tests/` that mock failed downloads and
+              assert user-friendly messages are emitted.
+            status: done
       - title: "Expanded QLoRA Coverage"
         description: >-
           Documented the validated preset matrix, hardened regression coverage
@@ -58,23 +75,6 @@ sections:
           request/response cycle).
   - heading: "⏱️ Near Term (0‑2 Sprints)"
     items:
-      - title: "Remote Model Export UX"
-        description: >-
-          Add progress reporting and richer error diagnostics when resolving remote
-          HuggingFace repos during GGUF export.
-        tasks:
-          - summary: >-
-              Integrate download progress callbacks into
-              `desktop_distill/export_gguf.py` and surface them in CLI logs.
-            status: todo
-          - summary: >-
-              Implement structured exception handling that outputs actionable
-              remediation hints when remote resolution fails.
-            status: todo
-          - summary: >-
-              Write integration tests under `tests/` that mock failed downloads and
-              assert user-friendly messages are emitted.
-            status: todo
       - title: "Benchmark Dashboards"
         description: >-
           Emit structured metrics from `rpi4/bench/pi_bench.py` and surface summaries

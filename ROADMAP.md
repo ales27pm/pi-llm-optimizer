@@ -8,6 +8,10 @@ extends the capabilities already documented in `README.md` and
 
 ## ✅ Recently Landed
 
+- **Remote Model Export UX** – Added download progress logging and actionable HuggingFace resolution diagnostics to the GGUF exporter.
+  - [x] Integrate download progress callbacks into `desktop_distill/export_gguf.py` and surface them in CLI logs.
+  - [x] Implement structured exception handling that outputs actionable remediation hints when remote resolution fails.
+  - [x] Write integration tests under `tests/` that mock failed downloads and assert user-friendly messages are emitted.
 - **Expanded QLoRA Coverage** – Documented the validated preset matrix, hardened regression coverage and exposed operator presets inside the automation UI.
   - [x] Capture a matrix of tested quantization settings in `desktop_distill/train_student.py` docstrings and mirror it in `README.md`.
   - [x] Extend the pytest suite with fixtures that exercise QLoRA adapters end-to-end using a small synthetic dataset.
@@ -21,10 +25,6 @@ extends the capabilities already documented in `README.md` and
 
 ## ⏱️ Near Term (0‑2 Sprints)
 
-- **Remote Model Export UX** – Add progress reporting and richer error diagnostics when resolving remote HuggingFace repos during GGUF export.
-  - [ ] Integrate download progress callbacks into `desktop_distill/export_gguf.py` and surface them in CLI logs.
-  - [ ] Implement structured exception handling that outputs actionable remediation hints when remote resolution fails.
-  - [ ] Write integration tests under `tests/` that mock failed downloads and assert user-friendly messages are emitted.
 - **Benchmark Dashboards** – Emit structured metrics from `rpi4/bench/pi_bench.py` and surface summaries within the Textual UI.
   - [ ] Refactor `rpi4/bench/pi_bench.py` to emit JSON summaries alongside CSV output for consumption by dashboards.
   - [ ] Update `automation/ui_app.py` to visualize recent benchmark runs in a dedicated panel with trend lines.

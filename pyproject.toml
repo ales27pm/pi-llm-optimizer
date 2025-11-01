@@ -20,3 +20,8 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that exercise multi-component flows requiring mocked IO",
+]
+

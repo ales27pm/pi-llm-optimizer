@@ -1,5 +1,6 @@
 import importlib
 import importlib.util
+import json
 import logging
 import subprocess
 import sys
@@ -100,6 +101,11 @@ def test_resolve_model_path_remote(monkeypatch: pytest.MonkeyPatch) -> None:
         local_dir = Path(kwargs["local_dir"])
         local_dir.mkdir(parents=True, exist_ok=True)
         (local_dir / "config.json").write_text("{}", encoding="utf-8")
+        tqdm_cls = kwargs.get("tqdm_class")
+        if tqdm_cls is not None:
+            bar = tqdm_cls(total=100, desc="weights")
+            bar.update(100)
+            bar.close()
         return str(local_dir)
 
     monkeypatch.setattr(export_gguf, "_get_snapshot_download", lambda: fake_snapshot_download)
@@ -114,7 +120,46 @@ def test_resolve_model_path_remote(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call["revision"] == "main"
     assert call["token"] == "abc"
     assert call["local_dir_use_symlinks"] is False
+    tqdm_cls = call.get("tqdm_class")
+    if tqdm_cls is None:
+        pytest.skip("tqdm is unavailable; progress logging disabled")
     assert Path(call["local_dir"]).name == "model"
+
+
+def test_resolve_model_path_remote_logs_progress(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    emitted: list[dict[str, object]] = []
+
+    def fake_snapshot_download(**kwargs):
+        tqdm_cls = kwargs.get("tqdm_class")
+        local_dir = Path(kwargs["local_dir"])
+        local_dir.mkdir(parents=True, exist_ok=True)
+        if tqdm_cls is not None:
+            bar = tqdm_cls(total=200, desc="weights")
+            bar.update(100)
+            bar.update(100)
+            bar.close()
+        return str(local_dir)
+
+    monkeypatch.setattr(export_gguf, "_get_snapshot_download", lambda: fake_snapshot_download)
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=export_gguf.logger.name):
+        with export_gguf._resolve_model_path("org/my-model", revision=None, token=None) as resolved:
+            assert resolved.exists()
+
+    for record in caplog.records:
+        if record.name == export_gguf.logger.name:
+            try:
+                emitted.append(json.loads(record.getMessage()))
+            except json.JSONDecodeError:
+                continue
+
+    if not emitted:
+        pytest.skip("tqdm is unavailable; no progress logs emitted")
+
+    events = {entry.get("event") for entry in emitted}
+    assert {"download_start", "download_progress", "download_complete"}.issubset(events)
 
 
 def test_get_snapshot_download_missing_module(monkeypatch: pytest.MonkeyPatch) -> None:
