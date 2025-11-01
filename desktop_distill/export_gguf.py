@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,7 +173,7 @@ class DownloadProgressReporter:
         else:
             payload["total_bytes"] = None
         if extra:
-            payload.update(extra)
+            payload |= extra
         logger.info(json.dumps(payload, sort_keys=True))
 
     def _start(self, target: str, total: Optional[int]) -> None:
@@ -186,9 +187,8 @@ class DownloadProgressReporter:
             if fraction >= state.last_fraction + self._min_fraction or downloaded == total:
                 state.last_fraction = fraction
                 should_log = True
-        else:
-            if downloaded - state.last_logged_bytes >= self._min_bytes or downloaded == total:
-                should_log = True
+        elif downloaded - state.last_logged_bytes >= self._min_bytes or downloaded == total:
+            should_log = True
         if should_log:
             state.last_logged_bytes = downloaded
             self._log("download_progress", target, downloaded, total)
@@ -224,6 +224,8 @@ def _resolve_model_path(model: str, *, revision: Optional[str], token: Optional[
 
         try:
             snapshot_download(**snapshot_kwargs)
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception as exc:  # pragma: no cover - exercised via dedicated tests
             raise _convert_snapshot_error(model, exc, revision=revision) from exc
 
@@ -241,25 +243,38 @@ def _convert_snapshot_error(model: str, exc: Exception, *, revision: Optional[st
     ]
 
     try:
-        from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError, RevisionNotFoundError
+        from huggingface_hub.utils import (
+            EntryNotFoundError,
+            HfHubHTTPError,
+            RepositoryNotFoundError,
+            RevisionNotFoundError,
+        )
     except ImportError:  # pragma: no cover - huggingface_hub already imported earlier
         EntryNotFoundError = HfHubHTTPError = RepositoryNotFoundError = RevisionNotFoundError = ()  # type: ignore[assignment]
 
-    if isinstance(exc, RepositoryNotFoundError):  # type: ignore[arg-type]
-        reason = "Repository was not found or access is denied."
-        hints.insert(0, "Check that the repository exists and that your account has accepted any gating terms.")
-    elif isinstance(exc, RevisionNotFoundError):  # type: ignore[arg-type]
-        rev = revision or "<default>"
-        reason = f"Revision '{rev}' does not exist in the repository."
-        hints.insert(0, "Use --revision to target a valid branch, tag or commit hash.")
-    elif isinstance(exc, EntryNotFoundError):  # type: ignore[arg-type]
-        reason = "The repository is missing expected model files."
-        hints.insert(0, "Ensure the repository contains the model weights and configuration files.")
-    elif isinstance(exc, HfHubHTTPError):  # type: ignore[arg-type]
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if status_code:
-            reason = f"HTTP {status_code} error while downloading the repository."
-        hints.append("Retry the export; transient HuggingFace outages can cause HTTP errors.")
+    try:
+        if isinstance(exc, RepositoryNotFoundError):  # type: ignore[arg-type]
+            reason = "Repository was not found or access is denied."
+            hints.insert(0, "Check that the repository exists and that your account has accepted any gating terms.")
+        elif isinstance(exc, RevisionNotFoundError):  # type: ignore[arg-type]
+            rev = revision or "<default>"
+            reason = f"Revision '{rev}' does not exist in the repository."
+            hints.insert(0, "Use --revision to target a valid branch, tag or commit hash.")
+        elif isinstance(exc, EntryNotFoundError):  # type: ignore[arg-type]
+            reason = "The repository is missing expected model files."
+            hints.insert(0, "Ensure the repository contains the model weights and configuration files.")
+        elif isinstance(exc, HfHubHTTPError):  # type: ignore[arg-type]
+            if status_code := getattr(getattr(exc, "response", None), "status_code", None):
+                reason = f"HTTP {status_code} error while downloading the repository."
+            hints.append("Retry the export; transient HuggingFace outages can cause HTTP errors.")
+    except Exception:  # pragma: no cover - defensive logging of unexpected errors
+        logger.error(
+            "Unexpected exception while converting snapshot error for model '%s' (revision: %s):\n%s",
+            model,
+            revision,
+            traceback.format_exc(),
+        )
+        raise
 
     payload = {
         "event": "model_resolution",

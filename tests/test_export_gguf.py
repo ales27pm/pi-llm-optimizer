@@ -1,3 +1,4 @@
+import builtins
 import importlib
 import importlib.util
 import json
@@ -160,6 +161,44 @@ def test_resolve_model_path_remote_logs_progress(
 
     events = {entry.get("event") for entry in emitted}
     assert {"download_start", "download_progress", "download_complete"}.issubset(events)
+
+
+def test_resolve_model_path_remote_without_tqdm(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fake_snapshot_download(**kwargs):
+        local_dir = Path(kwargs["local_dir"])
+        local_dir.mkdir(parents=True, exist_ok=True)
+        return str(local_dir)
+
+    monkeypatch.setattr(export_gguf, "_get_snapshot_download", lambda: fake_snapshot_download)
+
+    original_import = builtins.__import__
+
+    def _raise_for_tqdm(name: str, globals=None, locals=None, fromlist=(), level: int = 0):
+        if name.startswith("tqdm"):
+            raise ImportError("tqdm missing for test")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", _raise_for_tqdm)
+    sys.modules.pop("tqdm", None)
+    sys.modules.pop("tqdm.auto", None)
+
+    emitted: list[dict[str, object]] = []
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger=export_gguf.logger.name):
+        with export_gguf._resolve_model_path("org/my-model", revision=None, token=None) as resolved:
+            assert resolved.exists()
+
+    for record in caplog.records:
+        if record.name == export_gguf.logger.name:
+            try:
+                emitted.append(json.loads(record.getMessage()))
+            except json.JSONDecodeError:
+                continue
+
+    assert emitted == []
+    assert "tqdm is not available; download progress logging disabled" in caplog.text
 
 
 def test_get_snapshot_download_missing_module(monkeypatch: pytest.MonkeyPatch) -> None:
