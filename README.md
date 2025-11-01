@@ -103,12 +103,11 @@ still allowing you to override individual flags if needed.  The
 regression suite in `tests/test_train_student_qlora.py` exercises each
 matrix entry below.
 
-| Preset            | Target GPU families                      | Quant type | Compute dtype | Double quant | LoRA rank | LoRA α | LoRA dropout | Notes                                                                    |
-| ----------------- | ---------------------------------------- | ---------- | ------------- | ------------ | --------- | ------ | ----------- | ------------------------------------------------------------------------ |
-| `ampere-balanced` | NVIDIA Ampere/Hopper (RTX30+/A100/A800/) | `nf4`      | `bfloat16`    | ✅           | 64        | 128    | 0.05         | Throughput baseline for bf16-capable cards.                              |
-|                   | H100                                     |            |               |              |           |        |             |                                                                          |
-| `turing-safe`     | NVIDIA Turing (RTX20/T4)                 | `nf4`      | `float16`     | ✅           | 32        | 64     | 0.10         | fp16 compute keeps compatibility with older GPUs.                        |
-| `ada-memory`      | NVIDIA Ada (RTX40 24 GB+)                | `fp4`      | `bfloat16`    | ❌           | 16        | 32     | 0.05         | Minimises memory by extending adapters to attention + MLP projections.   |
+| Preset | Target GPU families | Quant type | Compute dtype | Double quant | LoRA rank | LoRA α | LoRA dropout | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ampere-balanced` | NVIDIA Ampere/Hopper (RTX30+/A100/A800/H100) | `nf4` | `bfloat16` | ✅ | 64 | 128 | 0.05 | Throughput baseline for bf16-capable cards. |
+| `turing-safe` | NVIDIA Turing (RTX20/T4) | `nf4` | `float16` | ✅ | 32 | 64 | 0.10 | fp16 compute keeps compatibility with older GPUs. |
+| `ada-memory` | NVIDIA Ada (RTX40 24 GB+) | `fp4` | `bfloat16` | ❌ | 16 | 32 | 0.05 | Minimises memory by targeting attention + MLP projection matrices. |
 
 If a preset requests bf16 compute on hardware that lacks support, the
 trainer automatically falls back to fp16 and logs a warning.
