@@ -12,6 +12,7 @@ This protocol governs the `automation/` toolchain including Textual UI code, pip
 - Prefer `logging` over `print` for runtime diagnostics; structure messages for CI readability.
 - Every CLI must guard entrypoints with `if __name__ == "__main__"` and surface actionable error messages.
 - Keep shell-outs sandboxed: validate inputs, check return codes, and document external tool dependencies in module docstrings.
+- Keep Textual UI controls for QLoRA presets aligned with `desktop_distill.train_student.QLORA_PRESETS`, ensuring selection logs describe the applied quantisation parameters.
 
 ## Shell Scripts
 

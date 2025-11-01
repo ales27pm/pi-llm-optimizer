@@ -11,6 +11,7 @@ Applies to the desktop distillation pipeline (training, export and UI glue) unde
 - Annotate public functions with precise type hints and document expected tensor/device shapes.
 - Maintain feature parity between CLI modules and the Textual UI; update usage docs alongside behavioural changes.
 - Route long-running operations through cancellable abstractions so the UI remains responsive.
+- When editing `QLORA_PRESETS`, update the module docstring matrix, README tables, UI metadata and regression fixtures within the same change.
 
 ## Error Handling
 

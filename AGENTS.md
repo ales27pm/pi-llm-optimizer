@@ -16,6 +16,7 @@ version: 1.0.0
 3.2 Keep this root `AGENTS.md` current. Amend it whenever new constraints, workflows, or tooling emerge.
 3.3 Expand the roadmap into actionable items that reflect shipped and planned work. Remove or revise stale entries.
 3.4 If a documentation source becomes obsolete, either delete it or rewrite it to match reality within the same commit.
+3.5 When adjusting QLoRA presets or quantisation guidance, update the training docstrings, README tables, UI metadata and regression tests in the same change set so operators always see a consistent matrix.
 
 ## 4. Session Workflow
 4.1 Before proposing or merging code:
