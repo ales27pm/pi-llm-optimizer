@@ -19,13 +19,14 @@ version: 1.0.0
 3.5 When adjusting QLoRA presets or quantisation guidance, update the training docstrings, README tables, UI metadata and regression tests in the same change set so operators always see a consistent matrix.
 
 ## 4. Session Workflow
-4.1 Before proposing or merging code:
+4.1 Treat every @codex interaction as a self-contained engineering session. Before closing the assistant response or proposing/merging code:
     a. Implement the change completely.
     b. Update documentation and roadmap artifacts to mirror the new state.
     c. Run relevant unit/integration tests and linters defined for the touched areas.
-    d. Execute `./automation/update_and_cleanup.sh` to format documentation, sweep caches, and validate synchronization.
-4.2 Record the executed commands and their outcomes in the session summary.
-4.3 Never rely on manual follow-up—each session must leave the repository consistent and releasable.
+    d. Execute `./automation/update_and_cleanup.sh` to format documentation, sweep caches, validate synchronization, and push any pending documentation updates produced by the tooling.
+4.2 Execute step 4.1.d at the end of **every** @codex request/response cycle, even if no code changes were required, so the repo state remains synchronized with codex automation outputs.
+4.3 Record the executed commands and their outcomes in the session summary.
+4.4 Never rely on manual follow-up—each session must leave the repository consistent and releasable.
 
 ## 5. Quality Gates
 5.1 Honour repository-specific tooling (formatters, lint configurations, test harnesses). Add or update checks if coverage is missing.
