@@ -183,7 +183,7 @@ class DownloadProgressReporter:
         state = self._state_for(target)
         should_log = False
         if total:
-            fraction = downloaded / total if total else 0
+            fraction = downloaded / total
             if fraction >= state.last_fraction + self._min_fraction or downloaded == total:
                 state.last_fraction = fraction
                 should_log = True
