@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Sequence
 
 import yaml
-from jinja2 import Environment
-from pydantic import BaseModel, Field, ValidationError, root_validator, validator
+from jinja2.sandbox import SandboxedEnvironment
+from jinja2 import StrictUndefined, select_autoescape
+from pydantic import BaseModel, Field, ValidationError, ConfigDict, field_validator, model_validator
 
 LOGGER = logging.getLogger("roadmap_sync")
 
@@ -25,16 +26,15 @@ class RoadmapTask(BaseModel):
     summary: str
     status: str = Field("todo")
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
-    @validator("summary")
+    @field_validator("summary")
     def _ensure_summary(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("summary must be a non-empty string")
         return value.strip()
 
-    @validator("status", pre=True)
+    @field_validator("status", mode="before")
     def _normalise_status(cls, value: str | None) -> str:
         if value is None:
             return "todo"
@@ -53,16 +53,15 @@ class RoadmapItem(BaseModel):
     description: str
     tasks: list[RoadmapTask] = Field(default_factory=list)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
-    @validator("title")
+    @field_validator("title")
     def _ensure_title(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("title must be a non-empty string")
         return value.strip()
 
-    @validator("description")
+    @field_validator("description")
     def _ensure_description(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("description must be a non-empty string")
@@ -76,32 +75,32 @@ class RoadmapSection(BaseModel):
     items: list[RoadmapItem] = Field(default_factory=list)
     bullets: list[str] = Field(default_factory=list)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
-    @validator("heading")
+    @field_validator("heading")
     def _ensure_heading(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("heading must be a non-empty string")
         return value.strip()
 
-    @validator("bullets", pre=True)
+    @field_validator("bullets", mode="before")
     def _default_bullets(cls, value: Sequence[str] | None) -> Sequence[str]:
         return [] if value is None else value
 
-    @validator("bullets", each_item=True)
-    def _normalise_bullet(cls, value: str) -> str:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("bullets must contain non-empty strings")
-        return value.strip()
+    @field_validator("bullets")
+    def _normalise_bullets(cls, value: list[str]) -> list[str]:
+        normalised: list[str] = []
+        for bullet in value:
+            if not isinstance(bullet, str) or not bullet.strip():
+                raise ValueError("bullets must contain non-empty strings")
+            normalised.append(bullet.strip())
+        return normalised
 
-    @root_validator
-    def _ensure_content(cls, values: dict) -> dict:
-        items: list[RoadmapItem] = values.get("items", [])
-        bullets: list[str] = values.get("bullets", [])
-        if not items and not bullets:
+    @model_validator(mode="after")
+    def _ensure_content(self) -> "RoadmapSection":
+        if not self.items and not self.bullets:
             raise ValueError("section must define at least one item or bullet")
-        return values
+        return self
 
 
 class RoadmapMetadata(BaseModel):
@@ -110,16 +109,15 @@ class RoadmapMetadata(BaseModel):
     title: str
     intro: str | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
-    @validator("title")
+    @field_validator("title")
     def _ensure_title(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("title must be a non-empty string")
         return value.strip()
 
-    @validator("intro")
+    @field_validator("intro")
     def _normalise_intro(cls, value: str | None) -> str | None:
         if value is None:
             return None
@@ -142,10 +140,9 @@ class RoadmapConfig(BaseModel):
     metadata: RoadmapMetadata
     sections: list[RoadmapSection]
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
-    @validator("sections")
+    @field_validator("sections")
     def _ensure_sections(cls, value: list[RoadmapSection]) -> list[RoadmapSection]:
         if not value:
             raise ValueError("at least one section must be defined")
@@ -162,7 +159,18 @@ class RoadmapSyncSummary:
     changed: bool
 
 
-_TEMPLATE_ENV = Environment(autoescape=False, trim_blocks=True, lstrip_blocks=True)
+# A sandboxed environment ensures untrusted roadmap content cannot invoke
+# arbitrary template behaviour while still letting us emit Markdown safely.
+_TEMPLATE_ENV = SandboxedEnvironment(
+    autoescape=select_autoescape(
+        enabled_extensions=("html", "xml"),
+        default=False,
+        default_for_string=False,
+    ),
+    trim_blocks=True,
+    lstrip_blocks=True,
+    undefined=StrictUndefined,
+)
 _ROADMAP_TEMPLATE = _TEMPLATE_ENV.from_string(
     """
 # {{ metadata.title }}
@@ -229,7 +237,7 @@ class RoadmapSynchroniser:
         except yaml.YAMLError as exc:
             raise RoadmapSyncError(f"Failed to parse roadmap YAML: {exc}") from exc
         try:
-            return RoadmapConfig.parse_obj(loaded)
+            return RoadmapConfig.model_validate(loaded)
         except ValidationError as exc:
             raise RoadmapSyncError(self._format_validation_error(exc)) from exc
 
