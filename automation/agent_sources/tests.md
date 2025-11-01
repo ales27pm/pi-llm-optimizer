@@ -12,3 +12,4 @@ Governs all assets under `tests/`.
 - Use pytest style with fixtures for shared setup; keep tests deterministic and hermetic.
 - Mark integration tests with `@pytest.mark.integration` and document required resources.
 - Favour realistic assertions that validate behaviour rather than implementation details.
+- Maintain end-to-end regression coverage for each QLoRA preset using synthetic datasets that assert quantisation metadata, adapter wiring and dtype fallbacks.

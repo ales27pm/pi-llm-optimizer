@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -32,6 +32,9 @@ from .pipeline_ops import (
     QLORA_PRESETS,
 )
 
+if TYPE_CHECKING:
+    from desktop_distill.train_student import QLoRAPreset
+
 APP_CSS_PATH = Path(__file__).with_name("ui_app.tcss")
 
 
@@ -41,6 +44,11 @@ QLORA_PRESET_OPTIONS = [
 ]
 
 
+DEFAULT_PRESET_DETAILS = "Select a preset to populate quantisation and LoRA hyperparameters."
+MISSING_PRESET_DETAILS = "Preset metadata missing; verify desktop_distill/train_student.py."
+DEFAULT_TARGET_MODULES = "q_proj,k_proj,v_proj,o_proj"
+
+
 class QLoRaPresetController:
     """Encapsulate QLoRA preset selection side effects for the UI."""
 
@@ -48,6 +56,8 @@ class QLoRaPresetController:
         self._checkbox = app.query_one("#train-qlora", Checkbox)
         self._log = app.query_one(TextLog)
         self._presets = QLORA_PRESETS
+        self._details_label = app.query_one("#train-qlora-preset-details", Label)
+        self._details_label.update(DEFAULT_PRESET_DETAILS)
 
     def handle(self, value: Optional[str]) -> None:
         enabled = bool(value)
@@ -55,6 +65,7 @@ class QLoRaPresetController:
 
         if not value:
             self._log.write("Cleared QLoRA preset selection.")
+            self._details_label.update(DEFAULT_PRESET_DETAILS)
             return
 
         preset = self._presets.get(value)
@@ -62,12 +73,47 @@ class QLoRaPresetController:
             self._log.write(
                 f"[yellow]WARNING:[/] Unknown preset '{value}'; using defaults."
             )
+            self._details_label.update(MISSING_PRESET_DETAILS)
             return
 
-        self._log.write(
-            f"Selected QLoRA preset '{value}' → {preset.target_gpus} • {preset.quant_type} • "
-            f"{preset.notes or 'see README for recommended hyperparameters'}"
+        warning, log_message, details_message = self._build_messages(value, preset)
+        if warning:
+            self._log.write(warning)
+        self._log.write(log_message)
+        self._details_label.update(details_message)
+
+    def _build_messages(
+        self, name: str, preset: "QLoRAPreset"
+    ) -> tuple[Optional[str], str, str]:
+        """Return log and detail strings plus an optional warning for a preset."""
+
+        target_modules = preset.target_modules
+        warning: Optional[str] = None
+        if not target_modules:
+            warning = (
+                f"[yellow]WARNING:[/] Preset '{name}' is missing target_modules metadata; "
+                f"defaulting to {DEFAULT_TARGET_MODULES}."
+            )
+            target_modules = DEFAULT_TARGET_MODULES
+
+        double_quant = "on" if preset.double_quant else "off"
+        log_message = (
+            f"Selected QLoRA preset '{name}' → {preset.target_gpus} • "
+            f"quant={preset.quant_type}/{preset.compute_dtype} • "
+            f"double-quant {double_quant} • "
+            f"LoRA r={preset.lora_rank} α={preset.lora_alpha} dropout={preset.lora_dropout} • "
+            f"targets={target_modules}"
         )
+        details_message = " | ".join(
+            [
+                f"quant={preset.quant_type}/compute={preset.compute_dtype}",
+                f"double-quant={double_quant}",
+                f"LoRA r={preset.lora_rank} α={preset.lora_alpha} dropout={preset.lora_dropout}",
+                f"targets={target_modules}",
+                preset.notes or "See README for tuning notes",
+            ]
+        )
+        return warning, log_message, details_message
 
 
 class PipelineApp(App[None]):
@@ -193,6 +239,11 @@ class PipelineApp(App[None]):
                         if QLORA_PRESET_OPTIONS
                         else "Install training dependencies to load preset metadata"
                     ),
+                ),
+                Label(
+                    "Select a preset to populate quantisation and LoRA hyperparameters.",
+                    id="train-qlora-preset-details",
+                    classes="preset-details",
                 ),
                 Checkbox(label="Enable QLoRA", id="train-qlora"),
                 Input(placeholder="Seed (optional)", id="train-seed"),

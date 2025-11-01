@@ -8,6 +8,16 @@ extends the capabilities already documented in `README.md` and
 
 ## ✅ Recently Landed
 
+- **Expanded QLoRA Coverage** – Documented the validated preset matrix,
+  hardened regression coverage and exposed operator presets inside the
+  automation UI.
+  - [x] Capture a matrix of tested quantization settings in
+        `desktop_distill/train_student.py` docstrings and mirror it in
+        `README.md`.
+  - [x] Extend the pytest suite with fixtures that exercise QLoRA
+        adapters end-to-end using a small synthetic dataset.
+  - [x] Add preset dropdowns to `automation/ui_app.py` so operators can
+        select proven QLoRA configurations without manual flag editing.
 - **Dataset Blueprint Tooling** – Added the dataset card generator and
   JSONL utilities so every corpus ships with reproducible documentation.
 - **Automation Command Builders** – Unified CLI assembly for labelling,
@@ -28,16 +38,6 @@ extends the capabilities already documented in `README.md` and
 
 ## ⏱️ Near Term (0‑2 Sprints)
 
-- **Expanded QLoRA Coverage** – Document recommended quantization
-  configs, add regression tests for 4-bit adapters and expose presets in
-  the UI and command builders.
-  - [ ] Capture a matrix of tested quantization settings in
-        `desktop_distill/train_student.py` docstrings and mirror it in
-        `README.md`.
-  - [ ] Extend the pytest suite with fixtures that exercise QLoRA
-        adapters end-to-end using a small synthetic dataset.
-  - [ ] Add preset dropdowns to `automation/ui_app.py` so operators can
-        select proven QLoRA configurations without manual flag editing.
 - **Remote Model Export UX** – Add progress reporting and richer error
   diagnostics when resolving remote HuggingFace repos during GGUF
   export.
